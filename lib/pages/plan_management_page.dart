@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/workout_plan.dart';
 import '../models/workout_day.dart';
 import '../services/api_service.dart';
+import '../widgets/toast_overlay.dart';
 
 /// 计划管理页面
 class PlanManagementPage extends StatefulWidget {
@@ -61,17 +62,9 @@ class _PlanManagementPageState extends State<PlanManagementPage> {
         plan.isActive = true;
       });
       
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('计划 "${plan.name}" 已激活')),
-        );
-      }
+      ToastManager().success('计划 "${plan.name}" 已激活');
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('激活失败: $e')),
-        );
-      }
+      ToastManager().error('激活失败: $e');
     }
   }
 
@@ -81,17 +74,9 @@ class _PlanManagementPageState extends State<PlanManagementPage> {
       await _apiService.deletePlan(plan.id!);
       _loadPlans(); // 刷新列表
       
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('计划已删除')),
-        );
-      }
+      ToastManager().success('计划已删除');
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('删除失败: $e')),
-        );
-      }
+      ToastManager().error('删除失败: $e');
     }
   }
 
@@ -171,9 +156,7 @@ class _PlanManagementPageState extends State<PlanManagementPage> {
             ElevatedButton(
               onPressed: () async {
                 if (nameController.text.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('请输入计划名称')),
-                  );
+                  ToastManager().warning('请输入计划名称');
                   return;
                 }
 
@@ -182,9 +165,7 @@ class _PlanManagementPageState extends State<PlanManagementPage> {
                     .toList();
                 
                 if (validDays.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('请至少添加一个训练日')),
-                  );
+                  ToastManager().warning('请至少添加一个训练日');
                   return;
                 }
 
@@ -221,9 +202,7 @@ class _PlanManagementPageState extends State<PlanManagementPage> {
                   
                   if (mounted) {
                     Navigator.pop(context); // 关闭对话框
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('计划编辑成功')),
-                    );
+                    ToastManager().success('计划编辑成功');
                   }
                 } catch (e) {
                   // 错误打印到日志，不弹框
@@ -314,9 +293,7 @@ class _PlanManagementPageState extends State<PlanManagementPage> {
             ElevatedButton(
               onPressed: () async {
                 if (nameController.text.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('请输入计划名称')),
-                  );
+                  ToastManager().warning('请输入计划名称');
                   return;
                 }
 
@@ -326,9 +303,7 @@ class _PlanManagementPageState extends State<PlanManagementPage> {
                     .toList();
                 
                 if (validDays.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('请至少添加一个训练日')),
-                  );
+                  ToastManager().warning('请至少添加一个训练日');
                   return;
                 }
 
@@ -352,17 +327,9 @@ class _PlanManagementPageState extends State<PlanManagementPage> {
                   await _apiService.createPlan(newPlan);
                   _loadPlans();
                   
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('计划创建成功')),
-                    );
-                  }
+                  ToastManager().success('计划创建成功');
                 } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('创建失败: $e')),
-                    );
-                  }
+                  ToastManager().error('创建失败: $e');
                 }
               },
               child: const Text('保存'),
@@ -388,11 +355,6 @@ class _PlanManagementPageState extends State<PlanManagementPage> {
         ],
       ),
       body: _buildBody(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showCreatePlanDialog,
-        tooltip: '创建计划',
-        child: const Icon(Icons.add),
-      ),
     );
   }
 
@@ -455,9 +417,13 @@ class _PlanManagementPageState extends State<PlanManagementPage> {
     }
 
     return ListView.builder(
-      itemCount: _plans.length,
+      itemCount: _plans.length + 1,
       padding: const EdgeInsets.all(16),
       itemBuilder: (context, index) {
+        if (index == _plans.length) {
+          // 最后一个：新增按钮
+          return _buildAddPlanCard();
+        }
         final plan = _plans[index];
         return _buildPlanCard(plan);
       },
@@ -468,7 +434,7 @@ class _PlanManagementPageState extends State<PlanManagementPage> {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: plan.isActive ? 4 : 1,
-      color: plan.isActive ? Colors.green.shade50 : null,
+      color: plan.isActive ? Colors.amber.shade50 : null,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -487,16 +453,17 @@ class _PlanManagementPageState extends State<PlanManagementPage> {
                 ),
                 if (plan.isActive)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.green,
                       borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.black87),
                     ),
                     child: const Text(
                       '激活中',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: Colors.black87,
                         fontSize: 12,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
@@ -538,36 +505,85 @@ class _PlanManagementPageState extends State<PlanManagementPage> {
               );
             }),
             const SizedBox(height: 12),
-            // 操作按钮
+            // 操作按钮 - 极简风格
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 if (!plan.isActive)
-                  ElevatedButton.icon(
-                    onPressed: () => _activatePlan(plan),
-                    icon: const Icon(Icons.play_arrow, size: 18),
-                    label: const Text('激活'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.black87),
+                    ),
+                    child: InkWell(
+                      onTap: () => _activatePlan(plan),
+                      child: const Text(
+                        '启用',
+                        style: TextStyle(
+                          color: Colors.black87,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
                     ),
                   )
                 else
                   const Text(
-                    '当前正在使用',
-                    style: TextStyle(color: Colors.green),
+                    '使用中',
+                    style: TextStyle(
+                      color: Colors.black54,
+                      fontSize: 13,
+                    ),
                   ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 4),
                 IconButton(
-                  icon: const Icon(Icons.edit, color: Colors.blue),
+                  icon: Icon(Icons.edit_outlined, color: Colors.grey.shade600, size: 20),
                   onPressed: () => _showEditPlanDialog(plan),
                   tooltip: '编辑',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.red),
+                  icon: Icon(Icons.delete_outlined, color: Colors.grey.shade600, size: 20),
                   onPressed: () => _confirmDelete(plan),
+                  tooltip: '删除',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 构建新增计划卡片
+  Widget _buildAddPlanCard() {
+    return InkWell(
+      onTap: _showCreatePlanDialog,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade300, style: BorderStyle.solid),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.add, color: Colors.grey.shade600),
+            const SizedBox(width: 8),
+            Text(
+              '新建训练计划',
+              style: TextStyle(
+                color: Colors.grey.shade700,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ],
         ),

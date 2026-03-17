@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
+import '../widgets/toast_overlay.dart';
 
 /// 今日训练页面 - 核心页面
 class TodayWorkoutPage extends StatefulWidget {
@@ -23,11 +25,56 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
   String? _errorMessage;
   bool _isCompleted = false;
   String _nextWorkout = '';
+  bool _showTip = true;
+  bool _hasCompletedToday = false;
+
+  /// 获取今天的完成状态存储key
+  String get _todayCompletionKey {
+    final today = DateTime.now();
+    final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+    return 'completed_$dateStr';
+  }
 
   @override
   void initState() {
     super.initState();
+    _loadCompletionStatus();
     _loadTodayWorkout();
+    _loadTipState();
+  }
+
+  /// 加载提示框状态
+  Future<void> _loadTipState() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _showTip = !(prefs.getBool('tip_closed') ?? false);
+    });
+  }
+
+  /// 关闭提示框
+  Future<void> _closeTip() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('tip_closed', true);
+    setState(() {
+      _showTip = false;
+    });
+  }
+
+  /// 加载今天的完成状态
+  Future<void> _loadCompletionStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _hasCompletedToday = prefs.getBool(_todayCompletionKey) ?? false;
+    });
+  }
+
+  /// 保存今天的完成状态
+  Future<void> _saveCompletionStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_todayCompletionKey, true);
+    setState(() {
+      _hasCompletedToday = true;
+    });
   }
 
   /// 加载今日训练内容
@@ -35,13 +82,18 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
-      _isCompleted = false;
+      // 如果今天已完成，保持完成状态
+      _isCompleted = _hasCompletedToday;
     });
 
     try {
       final workout = await _apiService.getTodayWorkout(widget.userId);
       setState(() {
         _todayWorkout = workout;
+        // 如果今天已完成，设置下次训练目标
+        if (_hasCompletedToday && _nextWorkout.isEmpty) {
+          _nextWorkout = workout;
+        }
         _isLoading = false;
       });
     } catch (e) {
@@ -59,32 +111,34 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
 
   /// 完成今日训练
   Future<void> _completeWorkout() async {
+    // 检查今天是否已完成
+    if (_hasCompletedToday) {
+      ToastManager().warning('今天已经完成训练了，明天再来吧！');
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
 
     try {
       final nextWorkout = await _apiService.completeTodayWorkout(widget.userId);
+      
+      // 保存今天的完成状态
+      await _saveCompletionStatus();
+      
       setState(() {
         _isCompleted = true;
         _nextWorkout = nextWorkout;
         _isLoading = false;
       });
       
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('训练完成！'), backgroundColor: Colors.green),
-        );
-      }
+      ToastManager().success('训练完成！');
     } catch (e) {
       setState(() {
         _isLoading = false;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('完成失败: $e'), backgroundColor: Colors.red),
-        );
-      }
+      ToastManager().error('完成失败: $e');
     }
   }
 
@@ -277,22 +331,44 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
                     color: Colors.green,
                   ),
                 ),
-                const SizedBox(height: 16),
-                const Text(
-                  '下次训练',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey,
+                const SizedBox(height: 24),
+                // 下次训练目标卡片（仅展示，不可点击）
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orange.shade200),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _nextWorkout,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w500,
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.fitness_center, color: Colors.orange.shade600, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            '下次训练目标',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.orange.shade700,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _nextWorkout,
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                   ),
-                  textAlign: TextAlign.center,
                 ),
               ],
             ),
@@ -300,25 +376,30 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
           const Spacer(),
           
           // 提示信息
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.blue.shade50,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.blue),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '提示：断练不重置！只要不点击"完成"，无论过几天，打开都显示同一项训练内容。',
-                    style: TextStyle(fontSize: 12, color: Colors.blue),
+          if (_showTip)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, color: Colors.blue),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      '提示：断练不重置！只要不点击"完成"，无论过几天，打开都显示同一项训练内容。',
+                      style: TextStyle(fontSize: 12, color: Colors.blue),
+                    ),
                   ),
-                ),
-              ],
+                  InkWell(
+                    onTap: _closeTip,
+                    child: const Icon(Icons.close, color: Colors.blue, size: 18),
+                  ),
+                ],
+              ),
             ),
-          ),
         ],
       ),
     );

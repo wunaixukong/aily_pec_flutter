@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'pages/today_workout_page.dart';
 import 'pages/plan_management_page.dart';
-import 'pages/user_list_page.dart';
+import 'pages/profile_page.dart';
+import 'widgets/toast_overlay.dart';
 
 void main() {
   runApp(const MyApp());
@@ -19,7 +20,9 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: const MainNavigationPage(),
+      home: const ToastOverlay(
+        child: MainNavigationPage(),
+      ),
     );
   }
 }
@@ -52,7 +55,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
         onGoToPlan: _switchToPlanPage,
       ),
       PlanManagementPage(userId: _userId),
-      const UserListPage(),
+      ProfilePage(userId: _userId),
     ];
 
     return Scaffold(
@@ -74,8 +77,8 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
             label: '训练计划',
           ),
           NavigationDestination(
-            icon: Icon(Icons.people),
-            label: '用户管理',
+            icon: Icon(Icons.person_outline),
+            label: '我的',
           ),
         ],
       ),
