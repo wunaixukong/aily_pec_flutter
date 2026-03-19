@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/workout_recommendation.dart';
 import '../models/workout_record.dart';
 import '../services/api_service.dart';
 import '../theme/app_tokens.dart';
@@ -19,7 +20,7 @@ class TodayWorkoutPage extends StatefulWidget {
 
 class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
   final ApiService _apiService = ApiService();
-  String _todayWorkout = '';
+  WorkoutRecommendation? _recommendation;
   bool _isLoading = false;
   String? _errorMessage;
   bool _isCompleted = false;
@@ -59,15 +60,15 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
 
     try {
       final record = await _apiService.getTodayRecord(widget.userId);
-      final workout = await _apiService.getTodayWorkout(widget.userId);
+      final recommendation = await _apiService.getTodayWorkout(widget.userId);
 
       if (!mounted) return;
       setState(() {
         _todayRecord = record;
-        _isCompleted = record != null;
-        _todayWorkout = workout;
+        _isCompleted = record != null || recommendation.completed;
+        _recommendation = recommendation;
         if (_isCompleted) {
-          _nextWorkout = workout;
+          _nextWorkout = recommendation.recommendedContent;
         }
         _isLoading = false;
       });
@@ -95,18 +96,21 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
     });
 
     try {
-      final nextWorkout = await _apiService.completeTodayWorkout(widget.userId);
+      final recommendation = await _apiService.completeTodayWorkout(widget.userId);
       final record = await _apiService.getTodayRecord(widget.userId);
 
       if (!mounted) return;
       setState(() {
         _todayRecord = record;
-        _isCompleted = true;
-        _nextWorkout = nextWorkout;
+        _recommendation = recommendation;
+        _isCompleted = record != null || recommendation.completed;
+        if (_isCompleted) {
+          _nextWorkout = recommendation.recommendedContent;
+        }
         _isLoading = false;
       });
 
-      ToastManager().success('训练完成！');
+      ToastManager().success('已打卡');
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -116,18 +120,90 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
     }
   }
 
+  Future<void> _submitStatus(String desc) async {
+    if (desc.trim().isEmpty) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      await _apiService.submitTodayStatus(widget.userId, desc);
+      await _loadTodayWorkout(); // 重新获取 AI 建议后的内容
+      ToastManager().success('状态已反馈给 AI');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+      });
+      ToastManager().error('提交失败: $e');
+    }
+  }
+
+  void _showStatusDialog() {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('身体状态反馈'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '如果你感到疲劳、受伤或有其他不适，请告诉 AI，它会为你调整今天的计划。',
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            TextField(
+              controller: controller,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                hintText: '例如：肩膀拉伤，无法进行推举类动作',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _submitStatus(controller.text);
+            },
+            child: const Text('反馈给 AI'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('今日训练'),
+        backgroundColor: AppColors.background,
+        elevation: 0,
+        centerTitle: false,
+        title: Text(
+          '今日训练',
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.5,
+              ),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh, color: AppColors.textPrimary),
             onPressed: _loadTodayWorkout,
             tooltip: '刷新',
           ),
+          const SizedBox(width: AppSpacing.sm),
         ],
       ),
       body: SafeArea(top: false, child: _buildBody(context)),
@@ -135,7 +211,7 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
   }
 
   Widget _buildBody(BuildContext context) {
-    if (_isLoading) {
+    if (_recommendation == null && _isLoading) {
       return const Center(
         child: AppStatusCard(
           icon: Icons.hourglass_bottom_rounded,
@@ -146,7 +222,7 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
       );
     }
 
-    if (_errorMessage != null) {
+    if (_errorMessage != null && _recommendation == null) {
       final isNoActivePlan = _errorMessage!.contains('没有激活');
       final isNoProgress = _errorMessage!.contains('进度指针');
       final canNavigate = isNoActivePlan || isNoProgress;
@@ -178,7 +254,7 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
       );
     }
 
-    if (_todayWorkout.isEmpty) {
+    if (_recommendation == null) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.md),
@@ -198,8 +274,8 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
     }
 
     final displayedWorkout = _isCompleted
-        ? (_todayRecord?.content ?? '')
-        : _todayWorkout;
+        ? (_todayRecord?.content ?? _recommendation!.recommendedContent)
+        : _recommendation!.recommendedContent;
     final workoutItems = _parseWorkoutItems(displayedWorkout);
 
     return ListView(
@@ -210,8 +286,14 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
         AppSpacing.xl,
       ),
       children: [
+        if (_recommendation?.recommendationType != 'BASE_PLAN' && !_isCompleted)
+          _buildAiReasonBanner(),
         _buildHeroCard(context, displayedWorkout: displayedWorkout),
-        const SizedBox(height: AppSpacing.lg),
+        const SizedBox(height: AppSpacing.sm),
+        if (!_isCompleted) ...[
+          _buildStatusEntryCard(),
+          const SizedBox(height: AppSpacing.lg),
+        ],
         _buildWorkoutListCard(
           context,
           workoutItems: workoutItems,
@@ -224,6 +306,50 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
           _buildTipCard(),
         ],
       ],
+    );
+  }
+
+  Widget _buildAiReasonBanner() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpacing.md),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.warningSoft.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.psychology_alt_rounded, color: AppColors.warning, size: 24),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'AI 已为你调整今日计划',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 14,
+                    color: AppColors.warning,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _recommendation?.recommendationReason ?? '根据你的身体状态，AI 建议今天进行调整。',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF856404),
+                    height: 1.4,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -240,116 +366,194 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
         : '聚焦今天这一组动作，完成后即可推进下一次训练。';
 
     return Container(
+      width: double.infinity,
       decoration: BoxDecoration(
-        gradient: AppGradients.hero,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.primary,
+            AppColors.accent.withValues(alpha: 0.95),
+            AppColors.accent,
+          ],
+          stops: const [0.0, 0.5, 1.0],
+        ),
         borderRadius: BorderRadius.circular(AppRadius.xl),
-        boxShadow: AppShadows.card,
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.24),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        child: Stack(
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            // 背景装饰圆圈
+            Positioned(
+              right: -30,
+              top: -20,
+              child: Container(
+                width: 150,
+                height: 150,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.08),
+                ),
+              ),
+            ),
+            Positioned(
+              left: -20,
+              bottom: -40,
+              child: Container(
+                width: 100,
+                height: 100,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.05),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      AppBadge(
-                        label: statusText,
-                        icon: _isCompleted ? Icons.check_circle : Icons.bolt,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      Text(
-                        '今日训练',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.84),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.xs),
-                      Text(
-                        headline,
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(
-                        supporting,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.88),
-                          height: 1.5,
-                        ),
-                      ),
+                      _buildHeroBadge(statusText, _isCompleted),
+                      _buildHeroGauge(progress: progress),
                     ],
                   ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                _buildHeroGauge(progress: progress),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(AppRadius.lg),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _buildHeroMetric(
-                      context,
-                      icon: Icons.fitness_center,
-                      label: '训练内容',
-                      value: _previewText(displayedWorkout),
+                  const SizedBox(height: AppSpacing.md),
+                  Text(
+                    '今日训练',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.8),
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  Container(
-                    width: 1,
-                    height: 42,
-                    color: Colors.white.withValues(alpha: 0.18),
-                  ),
-                  Expanded(
-                    child: _buildHeroMetric(
-                      context,
-                      icon: _isCompleted ? Icons.flag : Icons.track_changes,
-                      label: _isCompleted ? '下次目标' : '当前节奏',
-                      value: _isCompleted
-                          ? _previewText(_nextWorkout)
-                          : '完成即可推进',
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    headline,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.5,
                     ),
                   ),
+                  const SizedBox(height: AppSpacing.md),
+                  // 指标区
+                  _buildHeroMetricsRow(context, displayedWorkout),
+                  const SizedBox(height: AppSpacing.lg),
+                  // 主 CTA 按钮
+                  _buildHeroCtaButton(),
                 ],
               ),
             ),
-            const SizedBox(height: AppSpacing.lg),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _isCompleted ? null : _completeWorkout,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: AppColors.primary,
-                  disabledBackgroundColor: Colors.white.withValues(alpha: 0.24),
-                  disabledForegroundColor: Colors.white.withValues(alpha: 0.72),
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.lg),
-                  ),
-                ),
-                icon: Icon(
-                  _isCompleted ? Icons.check_circle : Icons.play_arrow_rounded,
-                ),
-                label: Text(_isCompleted ? '今日已完成' : '完成今日训练'),
-              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeroBadge(String text, bool completed) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            completed ? Icons.check_circle : Icons.bolt,
+            color: Colors.white,
+            size: 14,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeroMetricsRow(BuildContext context, String displayedWorkout) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildHeroMetric(
+              context,
+              customIconIndex: 10,
+              label: '训练内容',
+              value: _previewText(displayedWorkout),
+            ),
+          ),
+          Container(
+            width: 1,
+            height: 32,
+            margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+            color: Colors.white.withValues(alpha: 0.15),
+          ),
+          Expanded(
+            child: _buildHeroMetric(
+              context,
+              customIconIndex: 11,
+              label: _isCompleted ? '下次目标' : '当前节奏',
+              value: _isCompleted ? _previewText(_nextWorkout) : '完成即可推进',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeroCtaButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        onPressed: _isCompleted ? null : _completeWorkout,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.white,
+          foregroundColor: AppColors.primary,
+          disabledBackgroundColor: Colors.white.withValues(alpha: 0.2),
+          disabledForegroundColor: Colors.white.withValues(alpha: 0.6),
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              _isCompleted ? Icons.check_circle : Icons.play_arrow_rounded,
+              size: 20,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              _isCompleted ? '今日已完成' : '打卡今日训练',
+              style: const TextStyle(fontWeight: FontWeight.w900),
             ),
           ],
         ),
@@ -361,18 +565,19 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
     final progressLabel = '${(progress * 100).round()}%';
 
     return SizedBox(
-      width: 108,
-      height: 108,
+      width: 96,
+      height: 96,
       child: Stack(
         alignment: Alignment.center,
         children: [
           SizedBox(
-            width: 108,
-            height: 108,
+            width: 96,
+            height: 96,
             child: CircularProgressIndicator(
               value: progress,
-              strokeWidth: 10,
-              backgroundColor: Colors.white.withValues(alpha: 0.18),
+              strokeWidth: 8,
+              strokeCap: StrokeCap.round,
+              backgroundColor: Colors.white.withValues(alpha: 0.12),
               valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
             ),
           ),
@@ -383,16 +588,17 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
                 progressLabel,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -1,
                 ),
               ),
               Text(
-                _isCompleted ? '已完成' : '进行中',
+                _isCompleted ? '已打卡' : '进行中',
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.84),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
+                  color: Colors.white.withValues(alpha: 0.72),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ],
@@ -402,9 +608,60 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
     );
   }
 
+  Widget _buildStatusEntryCard() {
+    return GestureDetector(
+      onTap: _showStatusDialog,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceAlt,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: Border.all(color: AppColors.border.withValues(alpha: 0.5)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: AppColors.accent.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.health_and_safety_rounded, color: AppColors.accent, size: 20),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '身体感觉怎么样？',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 14,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    '告知 AI 你的伤痛或疲劳，动态调整计划',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: AppColors.border, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
   Widget _buildHeroMetric(
     BuildContext context, {
-    required IconData icon,
+    int? customIconIndex,
+    IconData? icon,
     required String label,
     required String value,
   }) {
@@ -421,7 +678,13 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
               color: Colors.white.withValues(alpha: 0.16),
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
-            child: Icon(icon, color: Colors.white, size: 18),
+            child: customIconIndex != null
+                ? AppDuotoneIcon(
+                    index: customIconIndex,
+                    color: Colors.white,
+                    size: 18,
+                  )
+                : Icon(icon, color: Colors.white, size: 18),
           ),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
@@ -463,105 +726,112 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        AppSectionHeader(
-          title: _isCompleted ? '今日动作回顾' : '今日动作列表',
-          subtitle: _isCompleted
-              ? '你已经完成今天训练，以下是本次完成内容。'
-              : '按顺序完成下面动作即可完成今天训练。',
-          trailing: AppBadge(
-            label: '${workoutItems.length} 项',
-            icon: Icons.format_list_bulleted_rounded,
-            color: AppColors.primary,
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _isCompleted ? '今日动作回顾' : '今日动作列表',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _isCompleted ? '已完成动作明细' : '按顺序完成以下动作',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+            AppBadge(
+              label: '${workoutItems.length} 项',
+              customIconIndex: 12,
+              color: AppColors.primary,
+            ),
+          ],
         ),
         const SizedBox(height: AppSpacing.md),
         AppSurfaceCard(
           borderRadius: AppRadius.xl,
-          padding: const EdgeInsets.all(AppSpacing.lg),
+          padding: const EdgeInsets.all(AppSpacing.md),
+          backgroundColor: Colors.white,
+          border: Border.all(color: AppColors.border.withValues(alpha: 0.6)),
           child: Column(
             children: [
               if (workoutItems.isEmpty)
-                Align(
-                  alignment: Alignment.centerLeft,
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.xl),
+                  alignment: Alignment.center,
                   child: Text(
                     fallbackText,
-                    style: theme.textTheme.titleMedium?.copyWith(height: 1.5),
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: AppColors.textSecondary,
+                      height: 1.5,
+                    ),
                   ),
                 )
               else
                 ...List.generate(workoutItems.length, (index) {
                   final item = workoutItems[index];
-                  final itemColor = _isCompleted
-                      ? AppColors.success
-                      : AppColors.primary;
-                  return Padding(
-                    padding: EdgeInsets.only(
-                      bottom: index == workoutItems.length - 1
-                          ? 0
-                          : AppSpacing.md,
-                    ),
-                    child: Container(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      decoration: BoxDecoration(
-                        color: _isCompleted
-                            ? AppColors.successSoft
-                            : AppColors.surfaceAlt,
-                        borderRadius: BorderRadius.circular(AppRadius.lg),
-                        border: Border.all(
-                          color: itemColor.withValues(alpha: 0.12),
+                  final isLast = index == workoutItems.length - 1;
+                  final itemColor = _isCompleted ? AppColors.success : AppColors.primary;
+
+                  return Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: itemColor.withValues(alpha: 0.1),
+                                shape: BoxShape.circle,
+                              ),
+                              alignment: Alignment.center,
+                              child: _isCompleted
+                                  ? const Icon(Icons.check, color: AppColors.success, size: 16)
+                                  : Text(
+                                      '${index + 1}',
+                                      style: TextStyle(
+                                        color: itemColor,
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                            ),
+                            const SizedBox(width: AppSpacing.md),
+                            Expanded(
+                              child: Text(
+                                item,
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
+                            if (_isCompleted)
+                              const Icon(Icons.verified_rounded, color: AppColors.success, size: 20)
+                            else
+                              const Icon(Icons.chevron_right_rounded, color: AppColors.border, size: 20),
+                          ],
                         ),
                       ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: itemColor.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(AppRadius.md),
-                            ),
-                            alignment: Alignment.center,
-                            child: _isCompleted
-                                ? const Icon(
-                                    Icons.check_rounded,
-                                    color: AppColors.success,
-                                    size: 20,
-                                  )
-                                : Text(
-                                    '${index + 1}',
-                                    style: TextStyle(
-                                      color: itemColor,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                          ),
-                          const SizedBox(width: AppSpacing.md),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  item,
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    color: AppColors.textPrimary,
-                                    height: 1.45,
-                                  ),
-                                ),
-                                const SizedBox(height: AppSpacing.xs),
-                                Text(
-                                  _isCompleted ? '已完成' : '待执行',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: itemColor,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                      if (!isLast)
+                        Divider(
+                          height: 1,
+                          color: AppColors.border.withValues(alpha: 0.4),
+                          indent: 48,
+                        ),
+                    ],
                   );
                 }),
             ],
@@ -575,20 +845,21 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
     if (_isCompleted) {
       return AppSurfaceCard(
         borderRadius: AppRadius.xl,
-        backgroundColor: AppColors.successSoft,
-        border: Border.all(color: AppColors.success.withValues(alpha: 0.18)),
+        backgroundColor: Colors.white,
+        border: Border.all(color: AppColors.success.withValues(alpha: 0.2)),
         child: Row(
           children: [
             Container(
-              width: 52,
-              height: 52,
+              width: 56,
+              height: 56,
               decoration: BoxDecoration(
-                color: AppColors.success.withValues(alpha: 0.12),
+                color: AppColors.success.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(AppRadius.lg),
               ),
               child: const Icon(
-                Icons.workspace_premium_rounded,
+                Icons.emoji_events_rounded,
                 color: AppColors.success,
+                size: 28,
               ),
             ),
             const SizedBox(width: AppSpacing.md),
@@ -596,24 +867,19 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const AppBadge(
-                    label: '今日完成',
-                    icon: Icons.check_circle,
-                    color: AppColors.success,
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
                   Text(
-                    '今日训练已完成！',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.titleLarge?.copyWith(color: AppColors.success),
+                    '训练打卡完成！',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.textPrimary,
+                        ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '继续保持训练节奏，明天也来完成下一次安排。',
+                    '继续保持这个节奏，期待你明天的进步。',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
+                          color: AppColors.textSecondary,
+                        ),
                   ),
                 ],
               ),
@@ -625,38 +891,41 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
 
     return AppSurfaceCard(
       borderRadius: AppRadius.xl,
+      backgroundColor: Colors.white,
+      border: Border.all(color: AppColors.border.withValues(alpha: 0.6)),
       child: Row(
         children: [
           Container(
-            width: 52,
-            height: 52,
+            width: 56,
+            height: 56,
             decoration: BoxDecoration(
-              color: AppColors.primaryContainer,
+              color: AppColors.primary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(AppRadius.lg),
             ),
-            child: const Icon(Icons.track_changes, color: AppColors.primary),
+            child: const Icon(
+              Icons.stars_rounded,
+              color: AppColors.primary,
+              size: 28,
+            ),
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const AppBadge(
-                  label: '今日目标',
-                  icon: Icons.bolt,
-                  color: AppColors.primary,
-                ),
-                const SizedBox(height: AppSpacing.sm),
                 Text(
-                  '完成本次训练后即可推进下一次内容。',
-                  style: Theme.of(context).textTheme.titleMedium,
+                  '今日训练目标',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.textPrimary,
+                      ),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '保持动作质量，完成后点击上方按钮打卡。',
+                  '完成后点击顶部按钮即可推进计划进度。',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
+                        color: AppColors.textSecondary,
+                      ),
                 ),
               ],
             ),
@@ -667,27 +936,20 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
   }
 
   Widget _buildTipCard() {
-    return AppSurfaceCard(
-      borderRadius: AppRadius.xl,
+    return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
-      backgroundColor: AppColors.infoSoft,
-      border: Border.all(color: AppColors.info.withValues(alpha: 0.16)),
-      boxShadow: const [],
+      decoration: BoxDecoration(
+        color: AppColors.infoSoft.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        border: Border.all(color: AppColors.info.withValues(alpha: 0.1)),
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: AppColors.info.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(AppRadius.md),
-            ),
-            child: const Icon(
-              Icons.lightbulb_outline_rounded,
-              color: AppColors.info,
-              size: 20,
-            ),
+          const Icon(
+            Icons.info_outline_rounded,
+            color: AppColors.info,
+            size: 20,
           ),
           const SizedBox(width: AppSpacing.sm),
           const Expanded(
@@ -695,30 +957,33 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '训练提示',
+                  '小提示',
                   style: TextStyle(
                     fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w900,
                     color: AppColors.info,
                   ),
                 ),
-                SizedBox(height: 6),
+                SizedBox(height: 4),
                 Text(
-                  '断练不重置。只要不点击“完成”，无论过几天，打开都显示同一项训练内容。',
+                  '断练不重置。只要不打卡，无论过几天，都会保留同一项训练内容。',
                   style: TextStyle(
                     fontSize: 13,
-                    color: AppColors.info,
+                    color: Color(0xFF4B6584),
                     height: 1.5,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
             ),
           ),
-          IconButton(
-            onPressed: _closeTip,
-            visualDensity: VisualDensity.compact,
-            icon: const Icon(Icons.close, color: AppColors.info, size: 18),
-            tooltip: '关闭提示',
+          GestureDetector(
+            onTap: _closeTip,
+            child: Icon(
+              Icons.close_rounded,
+              color: AppColors.info.withValues(alpha: 0.4),
+              size: 18,
+            ),
           ),
         ],
       ),

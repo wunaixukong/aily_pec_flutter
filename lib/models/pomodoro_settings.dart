@@ -8,9 +8,9 @@ class PomodoroSettings {
   final bool notificationsEnabled; // 是否启用通知
 
   PomodoroSettings({
-    this.workDuration = 60, // 默认60分钟
-    this.shortBreakDuration = 10,
-    this.longBreakDuration = 20,
+    this.workDuration = 1, // 测试：默认1分钟
+    this.shortBreakDuration = 1, // 测试：1分钟
+    this.longBreakDuration = 1, // 测试：1分钟
     this.longBreakInterval = 4,
     this.vibrateEnabled = true,
     this.notificationsEnabled = true,

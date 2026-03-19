@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 import '../models/user.dart';
 import '../models/workout_plan.dart';
 import '../models/api_response.dart';
+import '../models/workout_record.dart';
+import '../models/workout_recommendation.dart';
 
 /// API 服务类 - 处理与后端的通信
 class ApiService {
@@ -55,8 +57,16 @@ class ApiService {
   Future<User> getUserById(int id) async {
     try {
       final response = await _dio.get('/users/$id');
-      
+
       if (response.statusCode == 200) {
+        if (response.data is Map<String, dynamic>) {
+          final apiResponse = ApiResponse<User>.fromJson(
+            response.data as Map<String, dynamic>,
+            (data) => User.fromJson(data as Map<String, dynamic>),
+          );
+          apiResponse.checkSuccess();
+          return apiResponse.data!;
+        }
         return User.fromJson(response.data as Map<String, dynamic>);
       } else {
         throw Exception('获取用户失败: ${response.statusCode}');
@@ -204,22 +214,21 @@ class ApiService {
   // ==================== 今日训练接口 ====================
 
   /// 获取今天该练什么
-  Future<String> getTodayWorkout(int userId) async {
+  Future<WorkoutRecommendation> getTodayWorkout(int userId) async {
     try {
       final response = await _dio.get('/today/$userId');
-      
+
       if (response.statusCode == 200) {
         // 处理统一响应格式
         if (response.data is Map<String, dynamic>) {
-          final apiResponse = ApiResponse<String>.fromJson(
+          final apiResponse = ApiResponse<WorkoutRecommendation>.fromJson(
             response.data as Map<String, dynamic>,
-            (data) => data as String,
+            (data) => WorkoutRecommendation.fromJson(data as Map<String, dynamic>),
           );
           apiResponse.checkSuccess();
-          return apiResponse.data ?? '';
+          return apiResponse.data!;
         }
-        // 直接返回字符串（兼容旧格式）
-        return response.data as String;
+        throw Exception('API 返回格式错误');
       } else {
         throw Exception('获取今日训练失败: ${response.statusCode}');
       }
@@ -251,28 +260,124 @@ class ApiService {
   }
 
   /// 完成今日训练（推进指针）
-  Future<String> completeTodayWorkout(int userId) async {
+  Future<WorkoutRecommendation> completeTodayWorkout(int userId) async {
     try {
       final response = await _dio.post('/today/$userId/complete');
-      
+
       if (response.statusCode == 200) {
         // 处理统一响应格式
         if (response.data is Map<String, dynamic>) {
-          final apiResponse = ApiResponse<String>.fromJson(
+          final apiResponse = ApiResponse<WorkoutRecommendation>.fromJson(
             response.data as Map<String, dynamic>,
-            (data) => data as String,
+            (data) => WorkoutRecommendation.fromJson(data as Map<String, dynamic>),
           );
           apiResponse.checkSuccess();
-          return apiResponse.data ?? '';
+          return apiResponse.data!;
         }
-        // 直接返回字符串（兼容旧格式）
-        return response.data as String;
+        throw Exception('API 返回格式错误');
       } else {
         throw Exception('完成训练失败: ${response.statusCode}');
       }
     } on DioException catch (e) {
       throw Exception('网络请求错误: ${_handleDioError(e)}');
     }
+  }
+
+  /// 提交今日身体状态（例如：受伤、疲劳）
+  Future<void> submitTodayStatus(int userId, String description) async {
+    try {
+      final response = await _dio.post(
+        '/today/$userId/status',
+        data: {'description': description},
+      );
+
+      if (response.statusCode == 200) {
+        if (response.data is Map<String, dynamic>) {
+          final apiResponse = ApiResponse<dynamic>.fromJson(
+            response.data as Map<String, dynamic>,
+            null,
+          );
+          apiResponse.checkSuccess();
+        }
+      } else {
+        throw Exception('提交状态失败: ${response.statusCode}');
+      }
+    } on DioException catch (e) {
+      throw Exception('网络请求错误: ${_handleDioError(e)}');
+    }
+  }
+
+  // ==================== 训练记录接口 (文档对齐) ====================
+
+  /// 获取所有训练记录列表
+  Future<List<WorkoutRecord>> getRecordList(int userId) async {
+    try {
+      final response = await _dio.get('/record/list/$userId');
+      if (response.statusCode == 200) {
+        final List<dynamic> data = response.data as List<dynamic>;
+        return data.map((json) => WorkoutRecord.fromJson(json as Map<String, dynamic>)).toList();
+      } else {
+        throw Exception('获取记录列表失败: ${response.statusCode}');
+      }
+    } on DioException catch (e) {
+      throw Exception('网络请求错误: ${_handleDioError(e)}');
+    }
+  }
+
+  /// 获取今日已练内容
+  Future<WorkoutRecord?> getTodayRecord(int userId) async {
+    try {
+      final response = await _dio.get('/record/today/$userId');
+
+      if (response.statusCode == 200) {
+        if (response.data == null) return null;
+        final List<dynamic> data = response.data as List<dynamic>;
+        if (data.isEmpty) return null;
+        // 返回今天的最新一条记录
+        return WorkoutRecord.fromJson(data.first as Map<String, dynamic>);
+      } else {
+        throw Exception('获取今日记录失败: ${response.statusCode}');
+      }
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
+      throw Exception('网络请求错误: ${_handleDioError(e)}');
+    }
+  }
+
+  /// 保存训练记录
+  Future<WorkoutRecord> saveRecord(WorkoutRecord record) async {
+    try {
+      final response = await _dio.post('/record/save', data: record.toJson());
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final apiResponse = ApiResponse<WorkoutRecord>.fromJson(
+          response.data as Map<String, dynamic>,
+          (data) => WorkoutRecord.fromJson(data as Map<String, dynamic>),
+        );
+        apiResponse.checkSuccess();
+        return apiResponse.data!;
+      } else {
+        throw Exception('保存记录失败: ${response.statusCode}');
+      }
+    } on DioException catch (e) {
+      throw Exception('网络请求错误: ${_handleDioError(e)}');
+    }
+  }
+
+  // ==================== 番茄钟配置接口 (仅记录，暂不调用) ====================
+
+  /// 获取当前时间生效配置：GET /api/pomodoro/config/current/{userId}
+  Future<dynamic> getCurrentPomodoroConfig(int userId) async {
+    return _dio.get('/pomodoro/config/current/$userId');
+  }
+
+  /// 获取所有激活配置列表：GET /api/pomodoro/config/active-list/{userId}
+  Future<dynamic> getActivePomodoroConfigs(int userId) async {
+    return _dio.get('/pomodoro/config/active-list/$userId');
+  }
+
+  /// 创建/更新配置：POST /api/pomodoro/config
+  Future<dynamic> savePomodoroConfig(Map<String, dynamic> config) async {
+    return _dio.post('/pomodoro/config', data: config);
   }
 
   /// 处理 Dio 错误

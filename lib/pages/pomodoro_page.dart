@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
-import '../services/pomodoro_service.dart';
 import '../models/pomodoro_settings.dart';
+import '../services/pomodoro_service.dart';
+import '../theme/app_tokens.dart';
+import '../widgets/app_ui.dart';
 
 /// 番茄钟页面
 class PomodoroPage extends StatefulWidget {
@@ -18,12 +20,12 @@ class _PomodoroPageState extends State<PomodoroPage> {
     super.initState();
     _pomodoroService = PomodoroService();
     _pomodoroService.addListener(_onPomodoroStateChanged);
+    _pomodoroService.sendTestNotification();
   }
 
   @override
   void dispose() {
     _pomodoroService.removeListener(_onPomodoroStateChanged);
-    _pomodoroService.dispose();
     super.dispose();
   }
 
@@ -33,10 +35,11 @@ class _PomodoroPageState extends State<PomodoroPage> {
 
   @override
   Widget build(BuildContext context) {
+    final phaseColor = _getPhaseColor();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('番茄钟'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -45,194 +48,179 @@ class _PomodoroPageState extends State<PomodoroPage> {
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          children: [
-            // 当前阶段显示
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: _getPhaseColor().withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: _getPhaseColor().withValues(alpha: 0.3)),
+      body: ListView(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        children: [
+          Row(
+            children: [
+              AppBadge(
+                label: _pomodoroService.getCurrentPhaseText(),
+                icon: Icons.timelapse,
+                color: phaseColor,
               ),
-              child: Text(
-                _pomodoroService.getCurrentPhaseText(),
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: _getPhaseColor(),
+              const Spacer(),
+              Text(
+                _getStateText(),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textSecondary,
                 ),
               ),
-            ),
-
-            const SizedBox(height: 40),
-
-            // 圆形进度指示器
-            SizedBox(
-              width: 280,
-              height: 280,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  // 背景圆环
-                  SizedBox(
-                    width: 280,
-                    height: 280,
-                    child: CircularProgressIndicator(
-                      value: 1.0,
-                      strokeWidth: 8,
-                      backgroundColor: Colors.grey.shade200,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        Colors.grey.shade200,
-                      ),
-                    ),
-                  ),
-                  // 进度圆环
-                  SizedBox(
-                    width: 280,
-                    height: 280,
-                    child: CircularProgressIndicator(
-                      value: _pomodoroService.progress,
-                      strokeWidth: 8,
-                      backgroundColor: Colors.transparent,
-                      valueColor: AlwaysStoppedAnimation<Color>(_getPhaseColor()),
-                    ),
-                  ),
-                  // 时间显示
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        _pomodoroService.formattedTime,
-                        style: const TextStyle(
-                          fontSize: 48,
-                          fontWeight: FontWeight.bold,
-                          fontFeatures: [FontFeature.tabularFigures()],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _getStateText(),
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 40),
-
-            // 控制按钮
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          AppSurfaceCard(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Column(
               children: [
-                // 开始/暂停按钮
-                ElevatedButton(
-                  onPressed: _getPrimaryAction(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _getPhaseColor(),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 32,
-                      vertical: 16,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(25),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                SizedBox(
+                  width: 292,
+                  height: 292,
+                  child: Stack(
+                    alignment: Alignment.center,
                     children: [
-                      Icon(_getPrimaryActionIcon()),
-                      const SizedBox(width: 8),
-                      Text(
-                        _getPrimaryActionText(),
-                        style: const TextStyle(fontSize: 18),
+                      SizedBox(
+                        width: 292,
+                        height: 292,
+                        child: CircularProgressIndicator(
+                          value: 1,
+                          strokeWidth: 14,
+                          backgroundColor: AppColors.border,
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                            AppColors.border,
+                          ),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 292,
+                        height: 292,
+                        child: CircularProgressIndicator(
+                          value: _pomodoroService.progress,
+                          strokeWidth: 14,
+                          backgroundColor: Colors.transparent,
+                          strokeCap: StrokeCap.round,
+                          valueColor: AlwaysStoppedAnimation<Color>(phaseColor),
+                        ),
+                      ),
+                      Container(
+                        width: 224,
+                        height: 224,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: phaseColor.withValues(alpha: 0.08),
+                          border: Border.all(
+                            color: phaseColor.withValues(alpha: 0.14),
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              _pomodoroService.formattedTime,
+                              style: Theme.of(context).textTheme.headlineMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    fontFeatures: const [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                  ),
+                            ),
+                            const SizedBox(height: AppSpacing.xs),
+                            Text(
+                              _getStateText(),
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(color: AppColors.textSecondary),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
                 ),
-
-                // 停止按钮
-                if (_pomodoroService.state != PomodoroState.idle)
-                  OutlinedButton(
-                    onPressed: () => _pomodoroService.stopPomodoro(),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 16,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(25),
+                const SizedBox(height: AppSpacing.lg),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _getPrimaryAction(),
+                        icon: Icon(_getPrimaryActionIcon()),
+                        label: Text(_getPrimaryActionText()),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: phaseColor,
+                          foregroundColor: Colors.white,
+                        ),
                       ),
                     ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.stop),
-                        SizedBox(width: 8),
-                        Text('停止', style: TextStyle(fontSize: 16)),
-                      ],
-                    ),
-                  ),
+                    if (_pomodoroService.state != PomodoroState.idle) ...[
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _pomodoroService.stopPomodoro,
+                          icon: const Icon(Icons.stop_circle_outlined),
+                          label: const Text('停止'),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ],
             ),
-
-            const SizedBox(height: 40),
-
-            // 完成统计
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                borderRadius: BorderRadius.circular(12),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              Expanded(
+                child: _StatCard(
+                  title: '今日完成',
+                  value: '${_pomodoroService.completedSessions}',
+                  helper: '个番茄钟',
+                  icon: Icons.emoji_events_outlined,
+                  color: AppColors.warning,
+                ),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.emoji_events, color: Colors.orange),
-                  const SizedBox(width: 12),
-                  Text(
-                    '今日完成: ${_pomodoroService.completedSessions} 个番茄钟',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: _StatCard(
+                  title: '当前阶段',
+                  value: _pomodoroService.getCurrentPhaseText(),
+                  helper: _stateSummary(),
+                  icon: Icons.auto_awesome_motion,
+                  color: phaseColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          AppSurfaceCard(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            backgroundColor: AppColors.infoSoft,
+            border: Border.all(color: AppColors.info.withValues(alpha: 0.16)),
+            boxShadow: const [],
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: AppColors.info.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
                   ),
-                ],
-              ),
-            ),
-
-            const Spacer(),
-
-            // 提示信息
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, color: Colors.blue.shade600),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text(
-                      '番茄钟会在后台运行并发送通知提醒',
-                      style: TextStyle(fontSize: 14),
-                    ),
+                  child: const Icon(
+                    Icons.notifications_active_outlined,
+                    color: AppColors.info,
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                const Expanded(
+                  child: Text(
+                    '番茄钟会在后台持续运行，并在阶段切换时发送通知提醒。',
+                    style: TextStyle(color: AppColors.info, height: 1.5),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -240,11 +228,11 @@ class _PomodoroPageState extends State<PomodoroPage> {
   Color _getPhaseColor() {
     switch (_pomodoroService.currentPhase) {
       case PomodoroPhase.work:
-        return Colors.red;
+        return AppColors.pomodoroWork;
       case PomodoroPhase.shortBreak:
-        return Colors.green;
+        return AppColors.pomodoroShortBreak;
       case PomodoroPhase.longBreak:
-        return Colors.blue;
+        return AppColors.pomodoroLongBreak;
     }
   }
 
@@ -261,15 +249,28 @@ class _PomodoroPageState extends State<PomodoroPage> {
     }
   }
 
+  String _stateSummary() {
+    switch (_pomodoroService.state) {
+      case PomodoroState.idle:
+        return '等待启动';
+      case PomodoroState.running:
+        return '计时进行中';
+      case PomodoroState.paused:
+        return '可继续当前阶段';
+      case PomodoroState.completed:
+        return '可重置并开始下一轮';
+    }
+  }
+
   VoidCallback? _getPrimaryAction() {
     switch (_pomodoroService.state) {
       case PomodoroState.idle:
       case PomodoroState.paused:
-        return () => _pomodoroService.startPomodoro();
+        return _pomodoroService.startPomodoro;
       case PomodoroState.running:
-        return () => _pomodoroService.pausePomodoro();
+        return _pomodoroService.pausePomodoro;
       case PomodoroState.completed:
-        return () => _pomodoroService.resetPomodoro();
+        return _pomodoroService.resetPomodoro;
     }
   }
 
@@ -277,11 +278,11 @@ class _PomodoroPageState extends State<PomodoroPage> {
     switch (_pomodoroService.state) {
       case PomodoroState.idle:
       case PomodoroState.paused:
-        return Icons.play_arrow;
+        return Icons.play_arrow_rounded;
       case PomodoroState.running:
-        return Icons.pause;
+        return Icons.pause_rounded;
       case PomodoroState.completed:
-        return Icons.refresh;
+        return Icons.refresh_rounded;
     }
   }
 
@@ -306,6 +307,44 @@ class _PomodoroPageState extends State<PomodoroPage> {
         onSettingsChanged: (newSettings) {
           _pomodoroService.updateSettings(newSettings);
         },
+      ),
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final String helper;
+  final IconData icon;
+  final Color color;
+
+  const _StatCard({
+    required this.title,
+    required this.value,
+    required this.helper,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppBadge(label: title, icon: icon, color: color),
+          const SizedBox(height: AppSpacing.md),
+          Text(value, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            helper,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+          ),
+        ],
       ),
     );
   }
@@ -349,60 +388,71 @@ class _PomodoroSettingsDialogState extends State<_PomodoroSettingsDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('番茄钟设置'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // 工作时长
-            _buildDurationSetting(
-              '工作时长',
-              _workDuration,
-              (value) => setState(() => _workDuration = value),
-            ),
-            const SizedBox(height: 16),
-
-            // 短休息时长
-            _buildDurationSetting(
-              '短休息时长',
-              _shortBreakDuration,
-              (value) => setState(() => _shortBreakDuration = value),
-            ),
-            const SizedBox(height: 16),
-
-            // 长休息时长
-            _buildDurationSetting(
-              '长休息时长',
-              _longBreakDuration,
-              (value) => setState(() => _longBreakDuration = value),
-            ),
-            const SizedBox(height: 16),
-
-            // 长休息间隔
-            _buildDurationSetting(
-              '长休息间隔',
-              _longBreakInterval,
-              (value) => setState(() => _longBreakInterval = value),
-              suffix: '个番茄钟',
-            ),
-            const SizedBox(height: 20),
-
-            // 振动开关
-            SwitchListTile(
-              title: const Text('振动提醒'),
-              value: _vibrateEnabled,
-              onChanged: (value) => setState(() => _vibrateEnabled = value),
-              contentPadding: EdgeInsets.zero,
-            ),
-
-            // 通知开关
-            SwitchListTile(
-              title: const Text('通知提醒'),
-              value: _notificationsEnabled,
-              onChanged: (value) =>
-                  setState(() => _notificationsEnabled = value),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ],
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildDurationSetting(
+                '工作时长',
+                _workDuration,
+                (value) => setState(() => _workDuration = value),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _buildDurationSetting(
+                '短休息时长',
+                _shortBreakDuration,
+                (value) => setState(() => _shortBreakDuration = value),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _buildDurationSetting(
+                '长休息时长',
+                _longBreakDuration,
+                (value) => setState(() => _longBreakDuration = value),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _buildDurationSetting(
+                '长休息间隔',
+                _longBreakInterval,
+                (value) => setState(() => _longBreakInterval = value),
+                suffix: '个番茄钟',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Container(
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceAlt,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  children: [
+                    SwitchListTile(
+                      title: const Text('振动提醒'),
+                      subtitle: const Text('阶段切换时触发震动反馈'),
+                      value: _vibrateEnabled,
+                      onChanged: (value) =>
+                          setState(() => _vibrateEnabled = value),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    SwitchListTile(
+                      title: const Text('通知提醒'),
+                      subtitle: const Text('后台运行时推送通知提醒'),
+                      value: _notificationsEnabled,
+                      onChanged: (value) =>
+                          setState(() => _notificationsEnabled = value),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
       actions: [
@@ -436,21 +486,22 @@ class _PomodoroSettingsDialogState extends State<_PomodoroSettingsDialog> {
     String suffix = '分钟',
   }) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
-          child: Text(label),
+          child: Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.sm),
+            child: Text(label, style: Theme.of(context).textTheme.titleSmall),
+          ),
         ),
+        const SizedBox(width: AppSpacing.md),
         SizedBox(
-          width: 100,
+          width: 140,
           child: TextFormField(
             initialValue: value.toString(),
             keyboardType: TextInputType.number,
             textAlign: TextAlign.center,
-            decoration: InputDecoration(
-              suffix: Text(suffix),
-              border: const OutlineInputBorder(),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-            ),
+            decoration: InputDecoration(suffixText: suffix),
             onChanged: (text) {
               final newValue = int.tryParse(text);
               if (newValue != null && newValue > 0) {

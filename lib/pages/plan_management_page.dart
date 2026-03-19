@@ -112,7 +112,7 @@ class _PlanManagementPageState extends State<PlanManagementPage> {
         // 手动激活时不重新排序列表，避免卡片跳动
       });
 
-      ToastManager().success('计划 "${plan.name}" 已激活');
+      ToastManager().success('已激活');
     } catch (e) {
       ToastManager().error('激活失败: $e');
     }
@@ -344,20 +344,18 @@ class _PlanManagementPageState extends State<PlanManagementPage> {
       appBar: AppBar(
         title: const Text('训练计划'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadPlans,
-            tooltip: '刷新',
+          TextButton.icon(
+            onPressed: _showCreatePlanDialog,
+            icon: const Icon(Icons.add_rounded, size: 20),
+            label: const Text('新建'),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              textStyle: const TextStyle(fontWeight: FontWeight.w700),
+            ),
           ),
+          const SizedBox(width: AppSpacing.sm),
         ],
       ),
-      floatingActionButton: _plans.isNotEmpty
-          ? FloatingActionButton.extended(
-              onPressed: _showCreatePlanDialog,
-              icon: const Icon(Icons.add),
-              label: const Text('新建计划'),
-            )
-          : null,
       body: _buildBody(),
     );
   }
@@ -418,23 +416,9 @@ class _PlanManagementPageState extends State<PlanManagementPage> {
         AppSpacing.md,
         AppSpacing.xl,
       ),
-      itemCount: _plans.length + 1,
+      itemCount: _plans.length,
       itemBuilder: (context, index) {
-        if (index == 0) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.lg),
-            child: AppSectionHeader(
-              title: '我的计划',
-              subtitle: '激活后将用于首页的今日训练安排。',
-              trailing: AppBadge(
-                label: '${_plans.length} 个计划',
-                color: AppColors.primary,
-                icon: Icons.inventory_2_outlined,
-              ),
-            ),
-          );
-        }
-        final plan = _plans[index - 1];
+        final plan = _plans[index];
         return Padding(
           padding: const EdgeInsets.only(bottom: AppSpacing.md),
           child: _buildPlanCard(plan),
@@ -447,370 +431,319 @@ class _PlanManagementPageState extends State<PlanManagementPage> {
     final isActive = plan.isActive;
     final isExpanded =
         isActive || (plan.id != null && _expandedPlanIds.contains(plan.id));
-    final highlightColor = isActive ? AppColors.accent : AppColors.primary;
+    final highlightColor = isActive ? AppColors.textPrimary : AppColors.primary;
     final visibleDays = isExpanded
         ? plan.workoutDays
         : plan.workoutDays.take(2).toList();
     final remainingDays = plan.workoutDays.length - visibleDays.length;
     final showExpandHint = !isActive && plan.workoutDays.length > 2;
-    final progress = plan.workoutDays.isEmpty
-        ? 0.0
-        : math.min(visibleDays.length / plan.workoutDays.length, 1.0);
 
-    return Stack(
-      children: [
-        Positioned(top: 18, right: 0, bottom: 18, child: _buildSwipeHintRail()),
-        Padding(
-          padding: const EdgeInsets.only(right: 28),
-          child: AppSurfaceCard(
-            onTap: isActive ? null : () => _togglePlanExpansion(plan),
-            borderRadius: AppRadius.xl,
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            backgroundColor: Colors.white,
-            border: Border.all(
-              color: isActive
-                  ? AppColors.accent.withValues(alpha: 0.18)
-                  : AppColors.border,
+    return AppSurfaceCard(
+      onTap: isActive ? null : () => _togglePlanExpansion(plan),
+      borderRadius: AppRadius.xl,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      backgroundColor: isActive ? const Color(0xFFF1F4FF) : Colors.white,
+      boxShadow: isActive
+          ? [
+              BoxShadow(
+                color: AppColors.primary.withValues(alpha: 0.12),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              ),
+            ]
+          : AppShadows.card,
+      border: Border.all(
+        color: isActive
+            ? AppColors.primary.withValues(alpha: 0.6)
+            : AppColors.border,
+        width: isActive ? 2.5 : 1.0,
+      ),
+      child: Stack(
+        children: [
+          if (isActive) ...[
+            Positioned(
+              top: -24,
+              right: -24,
+              child: Container(
+                width: 100,
+                height: 100,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.primary.withValues(alpha: 0.04),
+                ),
+              ),
             ),
-            child: Stack(
-              children: [
-                Positioned(
-                  top: -18,
-                  right: -10,
-                  child: Container(
-                    width: 96,
-                    height: 96,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [
-                          AppColors.accent.withValues(alpha: 0.16),
-                          AppColors.accent.withValues(alpha: 0),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 0,
-                  top: 74,
-                  child: Container(
-                    width: 52,
-                    height: 52,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AppColors.primary.withValues(alpha: 0.05),
-                    ),
-                  ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+          ],
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                plan.name,
-                                maxLines: isExpanded ? 2 : 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.titleLarge
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.w800,
-                                      height: 1.2,
-                                    ),
+                        Text(
+                          plan.name,
+                          maxLines: isExpanded ? 2 : 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                height: 1.2,
+                                color: AppColors.textPrimary,
+                                letterSpacing: -0.5,
                               ),
-                              const SizedBox(height: AppSpacing.xs),
-                              Text(
-                                '${plan.workoutDays.length} 个训练日',
-                                style: Theme.of(context).textTheme.bodyMedium
-                                    ?.copyWith(color: AppColors.textSecondary),
-                              ),
-                            ],
-                          ),
                         ),
-                        const SizedBox(width: AppSpacing.sm),
-                        if (isActive)
-                          AppGlassCard(
-                            borderRadius: 999,
-                            blur: 14,
-                            opacity: 0.22,
-                            color: AppColors.accent,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.sm,
-                              vertical: AppSpacing.xs,
-                            ),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.38),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.auto_awesome,
-                                  size: 14,
-                                  color: Colors.white,
-                                ),
-                                SizedBox(width: 6),
-                                Text(
-                                  '已激活',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        else
-                          AppBadge(
-                            label: '未激活',
-                            color: AppColors.primary,
-                            icon: Icons.schedule,
-                          ),
+                        const SizedBox(height: AppSpacing.xs),
+                        Text(
+                          '${plan.workoutDays.length} 个训练周期',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: isActive
+                                    ? AppColors.primary
+                                    : AppColors.textSecondary,
+                                fontWeight: isActive
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                              ),
+                        ),
                       ],
                     ),
-                    const SizedBox(height: AppSpacing.md),
-                    _buildMiniProgressBar(
-                      progress: progress,
-                      color: highlightColor,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  if (isActive)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.bolt_rounded,
+                            size: 14,
+                            color: Colors.white,
+                          ),
+                          SizedBox(width: 4),
+                          Text(
+                            '执行中',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    AppBadge(label: '待命', color: AppColors.textMuted),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                children: [
+                  Text(
+                    isExpanded ? '已展示全部内容' : '预览训练结构',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: isActive
+                          ? AppColors.primary.withValues(alpha: 0.7)
+                          : AppColors.textMuted,
+                      fontWeight: FontWeight.w700,
                     ),
-                    const SizedBox(height: AppSpacing.xs),
-                    Row(
-                      children: [
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${plan.workoutDays.length} UNITS',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: highlightColor,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              ...visibleDays.asMap().entries.map((entry) {
+                final day = entry.value;
+                return Padding(
+                  padding: EdgeInsets.only(
+                    bottom: entry.key == visibleDays.length - 1
+                        ? 0
+                        : AppSpacing.sm,
+                  ),
+                  child: _buildWorkoutDayRow(day, isActive: isActive),
+                );
+              }),
+              if (!isActive &&
+                  (remainingDays > 0 || (showExpandHint && isExpanded)))
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.sm),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (remainingDays > 0)
                         Text(
-                          isExpanded ? '已展开全部内容' : '预览训练结构',
+                          '还有 $remainingDays 个阶段',
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(
                                 color: AppColors.textMuted,
-                                fontWeight: FontWeight.w600,
-                              ),
-                        ),
-                        const Spacer(),
-                        Text(
-                          '${visibleDays.length}/${plan.workoutDays.length}',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: highlightColor,
                                 fontWeight: FontWeight.w700,
                               ),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    ...visibleDays.asMap().entries.map((entry) {
-                      final day = entry.value;
-                      return Padding(
-                        padding: EdgeInsets.only(
-                          bottom: entry.key == visibleDays.length - 1
-                              ? 0
-                              : AppSpacing.sm,
-                        ),
-                        child: _buildWorkoutDayRow(day, isActive: isActive),
-                      );
-                    }),
-                    if (!isActive &&
-                        (remainingDays > 0 || (showExpandHint && isExpanded)))
-                      Padding(
-                        padding: const EdgeInsets.only(top: AppSpacing.sm),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (remainingDays > 0)
-                              Text(
-                                '还有 $remainingDays 个训练日',
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      color: AppColors.textMuted,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                              ),
-                            if (showExpandHint)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Text(
-                                  isExpanded ? '点击卡片收起' : '点击卡片展开全部训练日',
-                                  style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(color: AppColors.textMuted),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    const SizedBox(height: AppSpacing.lg),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: isActive
-                              ? Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: AppSpacing.md,
-                                    vertical: AppSpacing.sm,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.accent.withValues(
-                                      alpha: 0.08,
-                                    ),
-                                    borderRadius: BorderRadius.circular(
-                                      AppRadius.lg,
-                                    ),
-                                    border: Border.all(
-                                      color: AppColors.accent.withValues(
-                                        alpha: 0.14,
-                                      ),
-                                    ),
-                                  ),
-                                  child: const Text(
-                                    '当前正在使用这个计划',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: AppColors.accent,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                )
-                              : OutlinedButton(
-                                  onPressed: () => _activatePlan(plan),
-                                  style: OutlinedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: AppSpacing.md,
-                                      vertical: 12,
-                                    ),
-                                    textStyle: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(fontWeight: FontWeight.w700),
-                                    side: BorderSide(
-                                      color: AppColors.primary.withValues(
-                                        alpha: 0.18,
-                                      ),
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(
-                                        AppRadius.lg,
-                                      ),
-                                    ),
-                                  ),
-                                  child: const Text('启用计划'),
-                                ),
-                        ),
-                        const SizedBox(width: AppSpacing.sm),
-                        IconButton.filledTonal(
-                          onPressed: () => _showEditPlanDialog(plan),
-                          style: IconButton.styleFrom(
-                            backgroundColor: AppColors.primaryContainer,
-                            foregroundColor: AppColors.primary,
-                            minimumSize: const Size(44, 44),
+                      if (showExpandHint)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            isExpanded ? '点击收起' : '点击展开全部阶段',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: AppColors.textMuted),
                           ),
-                          icon: const Icon(Icons.edit_outlined),
-                          tooltip: '编辑',
                         ),
-                        const SizedBox(width: AppSpacing.xs),
-                        IconButton.filledTonal(
-                          onPressed: () => _confirmDelete(plan),
-                          style: IconButton.styleFrom(
-                            backgroundColor: AppColors.errorSoft,
-                            foregroundColor: AppColors.error,
-                            minimumSize: const Size(44, 44),
-                          ),
-                          icon: const Icon(Icons.delete_outline),
-                          tooltip: '删除',
-                        ),
-                      ],
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMiniProgressBar({
-    required double progress,
-    required Color color,
-  }) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(999),
-      child: LinearProgressIndicator(
-        value: progress,
-        minHeight: 6,
-        backgroundColor: AppColors.primaryContainer.withValues(alpha: 0.5),
-        valueColor: AlwaysStoppedAnimation<Color>(color),
-      ),
-    );
-  }
-
-  Widget _buildWorkoutDayRow(WorkoutDay day, {required bool isActive}) {
-    final indexColor = isActive ? AppColors.accent : AppColors.primary;
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: indexColor.withValues(alpha: 0.08)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: indexColor.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              '${day.dayOrder}',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-                color: indexColor,
+              const SizedBox(height: AppSpacing.lg),
+              Row(
+                children: [
+                  Expanded(
+                    child: isActive
+                        ? Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.md,
+                              vertical: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                              border: Border.all(
+                                color: AppColors.primary.withValues(alpha: 0.2),
+                                width: 1.5,
+                              ),
+                            ),
+                            child: const Text(
+                              '当前活跃计划',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 13,
+                              ),
+                            ),
+                          )
+                        : ElevatedButton(
+                            onPressed: () => _activatePlan(plan),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.md,
+                                ),
+                              ),
+                            ),
+                            child: const Text(
+                              '启用此计划',
+                              style: TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  IconButton.filledTonal(
+                    onPressed: () => _showEditPlanDialog(plan),
+                    style: IconButton.styleFrom(
+                      backgroundColor: isActive
+                          ? AppColors.primary.withValues(alpha: 0.1)
+                          : AppColors.surfaceAlt,
+                      foregroundColor: isActive
+                          ? AppColors.primary
+                          : AppColors.textPrimary,
+                      side: BorderSide(color: AppColors.border),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                      ),
+                    ),
+                    icon: const Icon(Icons.edit_note_rounded, size: 22),
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  IconButton.filledTonal(
+                    onPressed: () => _confirmDelete(plan),
+                    style: IconButton.styleFrom(
+                      backgroundColor: const Color(0xFFFFEAEA),
+                      foregroundColor: AppColors.error,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                      ),
+                    ),
+                    icon: const Icon(Icons.delete_outline_rounded, size: 22),
+                  ),
+                ],
               ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(top: 3),
-              child: Text(
-                day.content,
-                maxLines: isActive ? null : 2,
-                overflow: isActive ? null : TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(height: 1.45),
-              ),
-            ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSwipeHintRail() {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(3, (_) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Container(
-            width: 6,
-            height: 18,
+  Widget _buildWorkoutDayRow(WorkoutDay day, {required bool isActive}) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: isActive ? Colors.white : AppColors.surfaceAlt,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(
+          color: isActive
+              ? AppColors.primary.withValues(alpha: 0.15)
+              : AppColors.border.withValues(alpha: 0.5),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 28,
+            height: 28,
             decoration: BoxDecoration(
-              color: AppColors.accent.withValues(alpha: 0.24),
-              borderRadius: BorderRadius.circular(999),
+              color: isActive ? AppColors.primary : AppColors.border,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              '${day.dayOrder}',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+                color: isActive ? Colors.white : AppColors.textSecondary,
+              ),
             ),
           ),
-        );
-      }),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              day.content,
+              maxLines: isActive ? null : 1,
+              overflow: isActive ? null : TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                height: 1.4,
+                fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+                color: isActive
+                    ? AppColors.textPrimary
+                    : AppColors.textSecondary,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

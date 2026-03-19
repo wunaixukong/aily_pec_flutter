@@ -52,15 +52,25 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('我的'),
+        backgroundColor: AppColors.background,
+        elevation: 0,
+        centerTitle: false,
+        title: Text(
+          '我的',
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.5,
+              ),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh, color: AppColors.textPrimary),
             onPressed: _loadUserInfo,
             tooltip: '刷新',
           ),
+          const SizedBox(width: AppSpacing.sm),
         ],
       ),
       body: ListView(
@@ -73,7 +83,20 @@ class _ProfilePageState extends State<ProfilePage> {
         children: [
           _buildProfileHero(context),
           const SizedBox(height: AppSpacing.xl),
-          const AppSectionHeader(title: '功能与信息', subtitle: '常用工具和应用信息入口。'),
+          Row(
+            children: [
+              const Expanded(
+                child: AppSectionHeader(
+                  title: '功能与信息',
+                  subtitle: '常用工具和应用信息入口',
+                ),
+              ),
+              AppBadge(
+                label: '功能',
+                color: AppColors.primary.withValues(alpha: 0.8),
+              ),
+            ],
+          ),
           const SizedBox(height: AppSpacing.md),
           _buildFeatureGrid(context),
         ],
@@ -104,74 +127,98 @@ class _ProfilePageState extends State<ProfilePage> {
       );
     }
 
-    final displayName = _user?.nickname ?? _user?.username ?? '用户';
-    final lastChar = displayName.isNotEmpty
-        ? displayName.substring(displayName.length - 1)
-        : 'U';
+    final displayName = _user?.nickname ?? _user?.username ?? '未登录用户';
+    final lastChar = displayName.isNotEmpty ? displayName.substring(displayName.length - 1) : 'U';
     final secondaryText = _errorMessage != null
-        ? '信息加载不完整，点击右上角刷新'
+        ? '信息加载不完整，点击刷新'
         : (_user?.email != null && _user!.email!.isNotEmpty)
-        ? _user!.email!
-        : '保持训练，持续进步。';
+            ? _user!.email!
+            : '保持训练，持续进步。';
 
     return Container(
+      width: double.infinity,
       decoration: BoxDecoration(
+        gradient: AppGradients.hero,
         borderRadius: BorderRadius.circular(AppRadius.xl),
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            AppColors.accent.withValues(alpha: 0.12),
-            AppColors.primary.withValues(alpha: 0.06),
-            Colors.white,
-          ],
-        ),
-        boxShadow: AppShadows.card,
-        border: Border.all(color: AppColors.border.withValues(alpha: 0.8)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.2),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        child: Stack(
           children: [
-            _buildSquircleAvatar(context, lastChar: lastChar),
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              displayName,
-              textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              secondaryText,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: _errorMessage != null
-                    ? AppColors.error
-                    : AppColors.textSecondary,
-                height: 1.5,
+            Positioned(
+              right: -20,
+              top: -20,
+              child: Container(
+                width: 120,
+                height: 120,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.08),
+                ),
               ),
             ),
-            const SizedBox(height: AppSpacing.lg),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildHeroStat(
-                    context,
-                    label: '用户 ID',
-                    value: '${widget.userId}',
+            Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: Column(
+                children: [
+                  _buildSquircleAvatar(context, lastChar: lastChar),
+                  const SizedBox(height: AppSpacing.md),
+                  Text(
+                    displayName,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.5,
+                        ),
                   ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: _buildHeroStat(
-                    context,
-                    label: '状态',
-                    value: _errorMessage == null ? '正常' : '待刷新',
+                  const SizedBox(height: AppSpacing.xs),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      secondaryText,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.white.withValues(alpha: 0.9),
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: AppSpacing.xl),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildHeroStat(
+                          context,
+                          label: '用户 ID',
+                          value: '${widget.userId}',
+                          icon: Icons.fingerprint_rounded,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: _buildHeroStat(
+                          context,
+                          label: '账号状态',
+                          value: _errorMessage == null ? '正常' : '待刷新',
+                          icon: Icons.verified_user_rounded,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -184,38 +231,28 @@ class _ProfilePageState extends State<ProfilePage> {
     required String lastChar,
   }) {
     return Container(
-      width: 96,
-      height: 96,
-      decoration: ShapeDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.primary.withValues(alpha: 0.18),
-            AppColors.accent.withValues(alpha: 0.22),
-          ],
+      width: 88,
+      height: 88,
+      decoration: const ShapeDecoration(
+        color: Colors.white,
+        shape: ContinuousRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(38)),
         ),
-        shape: const ContinuousRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(42)),
-        ),
-        shadows: AppShadows.card,
+        shadows: [
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
       ),
-      padding: const EdgeInsets.all(2),
-      child: Container(
-        decoration: const ShapeDecoration(
-          color: Colors.white,
-          shape: ContinuousRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(38)),
-          ),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          lastChar,
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-            color: AppColors.primary,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
+      alignment: Alignment.center,
+      child: Text(
+        lastChar,
+        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+              color: AppColors.primary,
+              fontWeight: FontWeight.w900,
+            ),
       ),
     );
   }
@@ -224,29 +261,40 @@ class _ProfilePageState extends State<ProfilePage> {
     BuildContext context, {
     required String label,
     required String value,
+    required IconData icon,
   }) {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.88),
+        color: Colors.black.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: AppColors.border.withValues(alpha: 0.7)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text(
-            label,
-            style: Theme.of(
-              context,
-            ).textTheme.labelMedium?.copyWith(color: AppColors.textMuted),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          Icon(icon, color: Colors.white.withValues(alpha: 0.6), size: 20),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.6),
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -278,19 +326,30 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         _buildFeatureTile(
           context,
+          title: '配色方案',
+          subtitle: '自定义应用的主题与配色',
+          icon: Icons.palette_outlined,
+          accent: AppColors.accent,
+          accentAlt: AppColors.primary,
+          onTap: () => _showColorThemeDialog(context),
+        ),
+        _buildFeatureTile(
+          context,
           title: '关于',
           subtitle: '查看应用版本与简介',
           icon: Icons.info_outline,
-          accent: AppColors.accent,
-          accentAlt: AppColors.primary,
+          accent: Colors.orange,
+          accentAlt: Colors.amber,
           onTap: _showAboutDialog,
         ),
-        _buildInfoTile(context, title: '训练', value: '保持节奏', note: '今天也别中断'),
-        _buildInfoTile(
+        _buildFeatureTile(
           context,
-          title: '状态',
-          value: _errorMessage == null ? '稳定' : '需刷新',
-          note: '极简 · 清爽 · 专注',
+          title: '同步数据',
+          subtitle: '从服务器拉取最新资料',
+          icon: Icons.sync_rounded,
+          accent: AppColors.success,
+          accentAlt: Colors.teal,
+          onTap: _loadUserInfo,
         ),
       ],
     );
@@ -309,56 +368,65 @@ class _ProfilePageState extends State<ProfilePage> {
       onTap: onTap,
       borderRadius: AppRadius.xl,
       backgroundColor: Colors.white,
-      padding: const EdgeInsets.all(AppSpacing.lg),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      border: Border.all(color: AppColors.border.withValues(alpha: 0.6)),
       child: Stack(
         children: [
           Positioned(
-            top: -12,
-            right: -12,
+            top: -16,
+            right: -16,
             child: Container(
-              width: 72,
-              height: 72,
+              width: 64,
+              height: 64,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: accentAlt.withValues(alpha: 0.08),
+                color: accent.withValues(alpha: 0.05),
               ),
             ),
           ),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildDuotoneIcon(
-                icon: icon,
-                accent: accent,
-                accentAlt: accentAlt,
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                ),
+                child: Icon(icon, color: accent, size: 22),
               ),
               const Spacer(),
               Text(
                 title,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.textPrimary,
+                    ),
               ),
-              const SizedBox(height: AppSpacing.xs),
+              const SizedBox(height: 2),
               Text(
                 subtitle,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textSecondary,
-                  height: 1.45,
-                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w500,
+                    ),
               ),
               const SizedBox(height: AppSpacing.sm),
               Row(
                 children: [
                   Text(
-                    '进入',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    '立即进入',
+                    style: TextStyle(
                       color: accent,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
                     ),
                   ),
                   const SizedBox(width: 4),
-                  Icon(Icons.arrow_forward_rounded, size: 16, color: accent),
+                  Icon(Icons.arrow_forward_ios_rounded, size: 10, color: accent),
                 ],
               ),
             ],
@@ -450,6 +518,68 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
         ],
       ),
+    );
+  }
+
+  void _showColorThemeDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('选择配色方案'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildThemeOption(
+              context,
+              name: '极简蓝 (当前)',
+              color: const Color(0xFF5B6CF0),
+            ),
+            _buildThemeOption(
+              context,
+              name: '钢铁黑',
+              color: const Color(0xFF182033),
+            ),
+            _buildThemeOption(
+              context,
+              name: '动力红',
+              color: const Color(0xFFD14343),
+            ),
+            _buildThemeOption(
+              context,
+              name: '森林绿',
+              color: const Color(0xFF169B62),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildThemeOption(
+    BuildContext context, {
+    required String name,
+    required Color color,
+  }) {
+    return ListTile(
+      leading: Container(
+        width: 24,
+        height: 24,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      ),
+      title: Text(name),
+      onTap: () {
+        // TODO: 实际应用全局主题切换逻辑
+        Navigator.pop(context);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('已切换至 $name (UI 演示)')));
+      },
     );
   }
 
