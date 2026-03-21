@@ -18,7 +18,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '胸大鸡1',
+      title: '胸大鸡',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       home: const ToastOverlay(child: MainNavigationPage()),

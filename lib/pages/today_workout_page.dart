@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'chat_page.dart';
 import '../models/workout_recommendation.dart';
 import '../models/workout_record.dart';
 import '../services/api_service.dart';
@@ -65,10 +66,17 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
       if (!mounted) return;
       setState(() {
         _todayRecord = record;
-        _isCompleted = record != null || recommendation.completed;
         _recommendation = recommendation;
+        _isCompleted = record != null || recommendation.completed;
+
         if (_isCompleted) {
-          _nextWorkout = recommendation.recommendedContent;
+          // 如果已完成，且推荐内容和已练内容不一样，说明是“真正的下一项”
+          final recordContent = record?.content ?? '';
+          if (recommendation.recommendedContent != recordContent && recommendation.recommendedContent.isNotEmpty) {
+            _nextWorkout = recommendation.recommendedContent;
+          } else {
+            _nextWorkout = '明天将继续下一阶段';
+          }
         }
         _isLoading = false;
       });
@@ -120,66 +128,17 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
     }
   }
 
-  Future<void> _submitStatus(String desc) async {
-    if (desc.trim().isEmpty) return;
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      await _apiService.submitTodayStatus(widget.userId, desc);
-      await _loadTodayWorkout(); // 重新获取 AI 建议后的内容
-      ToastManager().success('状态已反馈给 AI');
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-      });
-      ToastManager().error('提交失败: $e');
-    }
-  }
-
-  void _showStatusDialog() {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('身体状态反馈'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '如果你感到疲劳、受伤或有其他不适，请告诉 AI，它会为你调整今天的计划。',
-              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            TextField(
-              controller: controller,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                hintText: '例如：肩膀拉伤，无法进行推举类动作',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _submitStatus(controller.text);
-            },
-            child: const Text('反馈给 AI'),
-          ),
-        ],
+  void _showStatusDialog() async {
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChatPage(userId: widget.userId),
       ),
     );
+
+    if (result == true) {
+      _loadTodayWorkout(); // 如果计划已更新，刷新首页
+    }
   }
 
   @override
@@ -299,6 +258,8 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
           workoutItems: workoutItems,
           fallbackText: displayedWorkout,
         ),
+        const SizedBox(height: AppSpacing.lg),
+        _buildNextWorkoutCard(),
         const SizedBox(height: AppSpacing.lg),
         _buildCompletionCards(context),
         if (_showTip) ...[
@@ -425,12 +386,20 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       _buildHeroBadge(statusText, _isCompleted),
-                      _buildHeroGauge(progress: progress),
+                      Text(
+                        _isCompleted ? 'STREAK 1 DAY' : 'FOCUS MODE',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.5,
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: AppSpacing.md),
+                  const SizedBox(height: AppSpacing.lg),
                   Text(
-                    '今日训练',
+                    '今日训练主题',
                     style: theme.textTheme.titleMedium?.copyWith(
                       color: Colors.white.withValues(alpha: 0.8),
                       fontWeight: FontWeight.w600,
@@ -445,9 +414,9 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
                       letterSpacing: -0.5,
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.md),
-                  // 指标区
-                  _buildHeroMetricsRow(context, displayedWorkout),
+                  const SizedBox(height: AppSpacing.lg),
+                  // 今日聚焦内容区 - 独占一行，空间充裕
+                  _buildHeroFocusContent(context, displayedWorkout),
                   const SizedBox(height: AppSpacing.lg),
                   // 主 CTA 按钮
                   _buildHeroCtaButton(),
@@ -460,66 +429,41 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
     );
   }
 
-  Widget _buildHeroBadge(String text, bool completed) {
+  Widget _buildHeroFocusContent(BuildContext context, String content) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            completed ? Icons.check_circle : Icons.bolt,
-            color: Colors.white,
-            size: 14,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            text,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeroMetricsRow(BuildContext context, String displayedWorkout) {
-    return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.08),
+        color: Colors.white.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: _buildHeroMetric(
-              context,
-              customIconIndex: 10,
-              label: '训练内容',
-              value: _previewText(displayedWorkout),
-            ),
+          Row(
+            children: [
+              const Icon(Icons.bolt_rounded, color: Colors.white, size: 16),
+              const SizedBox(width: 6),
+              Text(
+                '训练内容',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1,
+                ),
+              ),
+            ],
           ),
-          Container(
-            width: 1,
-            height: 32,
-            margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-            color: Colors.white.withValues(alpha: 0.15),
-          ),
-          Expanded(
-            child: _buildHeroMetric(
-              context,
-              customIconIndex: 11,
-              label: _isCompleted ? '下次目标' : '当前节奏',
-              value: _isCompleted ? _previewText(_nextWorkout) : '完成即可推进',
+          const SizedBox(height: 8),
+          Text(
+            content,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              height: 1.4,
             ),
           ),
         ],
@@ -658,61 +602,91 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
       ),
     );
   }
-  Widget _buildHeroMetric(
-    BuildContext context, {
-    int? customIconIndex,
-    IconData? icon,
-    required String label,
-    required String value,
-  }) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+  Widget _buildHeroBadge(String text, bool completed) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+      ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(AppRadius.md),
-            ),
-            child: customIconIndex != null
-                ? AppDuotoneIcon(
-                    index: customIconIndex,
-                    color: Colors.white,
-                    size: 18,
-                  )
-                : Icon(icon, color: Colors.white, size: 18),
+          Icon(
+            completed ? Icons.check_circle : Icons.bolt,
+            color: Colors.white,
+            size: 14,
           ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.72),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    height: 1.35,
-                  ),
-                ),
-              ],
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildNextWorkoutCard() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const AppSectionHeader(
+          title: '下次目标',
+          subtitle: '完成后为你准备的后续内容',
+        ),
+        const SizedBox(height: AppSpacing.md),
+        AppSurfaceCard(
+          borderRadius: AppRadius.xl,
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          backgroundColor: AppColors.primary.withValues(alpha: 0.04),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.1)),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.next_plan_rounded, color: AppColors.primary, size: 22),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _nextWorkout.isEmpty ? '待定' : _nextWorkout,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _isCompleted ? '明天将开始此阶段' : '完成当前训练后激活',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.arrow_forward_ios_rounded, color: AppColors.border, size: 14),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -1025,11 +999,12 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
   String _previewText(String text) {
     final compact = text.replaceAll('\n', ' ').trim();
     if (compact.isEmpty) {
-      return '暂无';
+      return '暂无内容';
     }
-    if (compact.length <= 18) {
+    // 增加展示长度限制
+    if (compact.length <= 32) {
       return compact;
     }
-    return '${compact.substring(0, 18)}…';
+    return '${compact.substring(0, 32)}…';
   }
 }

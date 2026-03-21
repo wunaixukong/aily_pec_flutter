@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
+import '../models/chat_message.dart';
 import '../models/user.dart';
 import '../models/workout_plan.dart';
 import '../models/api_response.dart';
@@ -8,7 +12,7 @@ import '../models/workout_recommendation.dart';
 /// API 服务类 - 处理与后端的通信
 class ApiService {
   // 远程服务器地址
-  static const String baseUrl = 'http://123.207.199.246:8080/api';
+  static const String baseUrl = 'http://123.207.199.246:8080';
   
   late final Dio _dio;
 
@@ -283,6 +287,105 @@ class ApiService {
     }
   }
 
+  /// 获取聊天历史记录，按页加载旧消息
+  Future<ChatHistoryPage> getChatHistory(
+    int userId, {
+    int pageNum = 1,
+    int pageSize = 20,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '/message/$userId/history',
+        queryParameters: {
+          'pageNum': pageNum,
+          'pageSize': pageSize,
+          'page': pageNum,
+          'size': pageSize,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        return _parseChatHistoryPage(
+          response.data,
+          pageNum: pageNum,
+          pageSize: pageSize,
+        );
+      }
+
+      throw Exception('获取聊天记录失败: ${response.statusCode}');
+    } on DioException catch (e) {
+      throw Exception('网络请求错误: ${_handleDioError(e)}');
+    }
+  }
+
+  /// 提交今日身体状态（例如：受伤、疲劳）- 流式对话版
+  Stream<String> chatWithAiStream(int userId, String description) async* {
+    try {
+      final response = await _dio.post(
+        '/message/$userId/chat/stream',
+        data: {'description': description},
+        options: Options(responseType: ResponseType.stream),
+      );
+
+      final Stream<List<int>> stream = (response.data.stream as Stream).cast<List<int>>();
+
+      // 手动按行解析，避免 LineSplitter 的异常中断
+      StringBuffer buffer = StringBuffer();
+
+      await for (final chunk in stream) {
+        // 将字节转换为字符串，并追加到缓存
+        final String chunkString = utf8.decode(chunk, allowMalformed: true);
+        buffer.write(chunkString);
+
+        // 检查是否有换行符，如果有，处理完整行
+        String currentContent = buffer.toString();
+        while (currentContent.contains('\n')) {
+          final int index = currentContent.indexOf('\n');
+          final String line = currentContent.substring(0, index).trim();
+          currentContent = currentContent.substring(index + 1);
+          buffer = StringBuffer(currentContent);
+
+          debugPrint('--- SSE RAW LINE: $line');
+
+          if (line.isEmpty) continue;
+
+          if (line.startsWith('data:')) {
+            final data = line.substring(5).trim();
+            if (data == '[DONE]') return;
+            // 过滤掉纯 complete 标记，它只通过 event 信号处理，不作为文本展示
+            if (data == 'complete') continue;
+
+            try {
+              if (data.startsWith('{')) {
+                final Map<String, dynamic> jsonData = jsonDecode(data);
+                yield jsonData['content']?.toString() ?? jsonData['data']?.toString() ?? data;
+              } else {
+                yield data;
+              }
+            } catch (e) {
+              yield data;
+            }
+          } else if (line.startsWith('event:')) {
+            final event = line.substring(6).trim();
+            // 兼容 event:done (旧协议) 和 event:complete/error (新协议)
+            if (event == 'complete' || event == 'error' || event == 'done') {
+              yield '[[EVENT:$event]]';
+            }
+          } else if (!line.startsWith(':')) {
+            yield line;
+          }
+        }
+      }
+    } on DioException catch (e) {
+      debugPrint('Chat Dio Error: ${e.type} - ${e.message}');
+      throw Exception('网络请求错误: ${_handleDioError(e)}');
+    } catch (e, stack) {
+      debugPrint('Chat Stream Error: $e');
+      debugPrint('Stack: $stack');
+      throw Exception('解析流数据失败: $e');
+    }
+  }
+
   /// 提交今日身体状态（例如：受伤、疲劳）
   Future<void> submitTodayStatus(int userId, String description) async {
     try {
@@ -365,19 +468,128 @@ class ApiService {
 
   // ==================== 番茄钟配置接口 (仅记录，暂不调用) ====================
 
-  /// 获取当前时间生效配置：GET /api/pomodoro/config/current/{userId}
+  /// 获取当前时间生效配置：GET /pomodoro/config/current/{userId}
   Future<dynamic> getCurrentPomodoroConfig(int userId) async {
     return _dio.get('/pomodoro/config/current/$userId');
   }
 
-  /// 获取所有激活配置列表：GET /api/pomodoro/config/active-list/{userId}
+  /// 获取所有激活配置列表：GET /pomodoro/config/active-list/{userId}
   Future<dynamic> getActivePomodoroConfigs(int userId) async {
     return _dio.get('/pomodoro/config/active-list/$userId');
   }
 
-  /// 创建/更新配置：POST /api/pomodoro/config
+  /// 创建/更新配置：POST /pomodoro/config
   Future<dynamic> savePomodoroConfig(Map<String, dynamic> config) async {
     return _dio.post('/pomodoro/config', data: config);
+  }
+
+  ChatHistoryPage _parseChatHistoryPage(
+    dynamic rawData, {
+    required int pageNum,
+    required int pageSize,
+  }) {
+    final container = _unwrapResponseData(rawData);
+    if (container is List) {
+      final messages = _parseChatMessages(container);
+      return ChatHistoryPage(
+        messages: messages,
+        pageNum: pageNum,
+        pageSize: pageSize,
+        hasMore: messages.length >= pageSize,
+      );
+    }
+
+    if (container is! Map<String, dynamic>) {
+      throw Exception('聊天记录返回格式错误');
+    }
+
+    final dataList = _extractMessageList(container);
+    final messages = _parseChatMessages(dataList);
+    final currentPage = _readInt(container, const ['pageNum', 'page', 'current']) ?? pageNum;
+    final currentPageSize = _readInt(container, const ['pageSize', 'size']) ?? pageSize;
+    final total = _readInt(container, const ['total', 'totalCount']);
+    final explicitHasMore = _readBool(container, const ['hasMore', 'hasNext', 'more']);
+
+    final hasMore = explicitHasMore ??
+        (total != null
+            ? currentPage * currentPageSize < total
+            : messages.length >= currentPageSize);
+
+    return ChatHistoryPage(
+      messages: messages,
+      pageNum: currentPage,
+      pageSize: currentPageSize,
+      hasMore: hasMore,
+    );
+  }
+
+  dynamic _unwrapResponseData(dynamic rawData) {
+    if (rawData is Map<String, dynamic>) {
+      if (rawData['success'] == false) {
+        throw Exception(rawData['message']?.toString() ?? '获取聊天记录失败');
+      }
+
+      final data = rawData['data'];
+      if (data is List || data is Map<String, dynamic>) {
+        return data;
+      }
+    }
+    return rawData;
+  }
+
+  List<dynamic> _extractMessageList(Map<String, dynamic> container) {
+    const keys = ['records', 'list', 'items', 'rows', 'content', 'messages'];
+    for (final key in keys) {
+      final value = container[key];
+      if (value is List) {
+        return value;
+      }
+    }
+    return const [];
+  }
+
+  List<ChatMessage> _parseChatMessages(List<dynamic> rawList) {
+    final messages = rawList
+        .whereType<Map>()
+        .map((item) => ChatMessage.fromJson(Map<String, dynamic>.from(item)))
+        .where((message) => message.content.trim().isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return messages;
+  }
+
+  int? _readInt(Map<String, dynamic> json, List<String> keys) {
+    for (final key in keys) {
+      final value = json[key];
+      if (value is int) {
+        return value;
+      }
+      if (value is String) {
+        final parsed = int.tryParse(value);
+        if (parsed != null) {
+          return parsed;
+        }
+      }
+    }
+    return null;
+  }
+
+  bool? _readBool(Map<String, dynamic> json, List<String> keys) {
+    for (final key in keys) {
+      final value = json[key];
+      if (value is bool) {
+        return value;
+      }
+      if (value is String) {
+        if (value.toLowerCase() == 'true') {
+          return true;
+        }
+        if (value.toLowerCase() == 'false') {
+          return false;
+        }
+      }
+    }
+    return null;
   }
 
   /// 处理 Dio 错误
