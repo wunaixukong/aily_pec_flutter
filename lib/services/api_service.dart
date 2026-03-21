@@ -13,7 +13,7 @@ import '../models/workout_recommendation.dart';
 class ApiService {
   // 远程服务器地址
   static const String baseUrl = 'http://123.207.199.246:8080';
-  
+
   late final Dio _dio;
 
   ApiService() {
@@ -45,7 +45,7 @@ class ApiService {
   Future<List<User>> getUsers() async {
     try {
       final response = await _dio.get('/users');
-      
+
       if (response.statusCode == 200) {
         final List<dynamic> data = response.data as List<dynamic>;
         return data.map((json) => User.fromJson(json as Map<String, dynamic>)).toList();
@@ -84,7 +84,7 @@ class ApiService {
   Future<User> createUser(User user) async {
     try {
       final response = await _dio.post('/users', data: user.toJson());
-      
+
       if (response.statusCode == 201 || response.statusCode == 200) {
         return User.fromJson(response.data as Map<String, dynamic>);
       } else {
@@ -99,7 +99,7 @@ class ApiService {
   Future<User> updateUser(int id, User user) async {
     try {
       final response = await _dio.put('/users/$id', data: user.toJson());
-      
+
       if (response.statusCode == 200) {
         return User.fromJson(response.data as Map<String, dynamic>);
       } else {
@@ -114,7 +114,7 @@ class ApiService {
   Future<void> deleteUser(int id) async {
     try {
       final response = await _dio.delete('/users/$id');
-      
+
       if (response.statusCode != 200 && response.statusCode != 204) {
         throw Exception('删除用户失败: ${response.statusCode}');
       }
@@ -129,7 +129,7 @@ class ApiService {
   Future<WorkoutPlan> createPlan(WorkoutPlan plan) async {
     try {
       final response = await _dio.post('/plans', data: plan.toJson());
-      
+
       if (response.statusCode == 201 || response.statusCode == 200) {
         return WorkoutPlan.fromJson(response.data as Map<String, dynamic>);
       } else {
@@ -144,7 +144,7 @@ class ApiService {
   Future<WorkoutPlan> editPlan(WorkoutPlan plan) async {
     try {
       final response = await _dio.post('/plans/edit', data: plan.toJson());
-      
+
       if (response.statusCode == 200) {
         // 后端返回统一响应格式 {"data": {...}, "success": true}
         final responseData = response.data as Map<String, dynamic>;
@@ -162,7 +162,7 @@ class ApiService {
   Future<List<WorkoutPlan>> getUserPlans(int userId) async {
     try {
       final response = await _dio.get('/plans/user/$userId');
-      
+
       if (response.statusCode == 200) {
         final List<dynamic> data = response.data as List<dynamic>;
         return data.map((json) => WorkoutPlan.fromJson(json as Map<String, dynamic>)).toList();
@@ -178,7 +178,7 @@ class ApiService {
   Future<WorkoutPlan> getActivePlan(int userId) async {
     try {
       final response = await _dio.get('/plans/active/$userId');
-      
+
       if (response.statusCode == 200) {
         return WorkoutPlan.fromJson(response.data as Map<String, dynamic>);
       } else {
@@ -193,7 +193,7 @@ class ApiService {
   Future<void> activatePlan(int planId, int userId) async {
     try {
       final response = await _dio.put('/plans/$planId/activate?userId=$userId');
-      
+
       if (response.statusCode != 200) {
         throw Exception('激活计划失败: ${response.statusCode}');
       }
@@ -206,7 +206,7 @@ class ApiService {
   Future<void> deletePlan(int planId) async {
     try {
       final response = await _dio.delete('/plans/$planId');
-      
+
       if (response.statusCode != 200 && response.statusCode != 204) {
         throw Exception('删除计划失败: ${response.statusCode}');
       }
@@ -245,7 +245,7 @@ class ApiService {
   Future<void> initProgress(int userId, int planId) async {
     try {
       final response = await _dio.post('/today/$userId/init', data: {'planId': planId});
-      
+
       if (response.statusCode == 200 || response.statusCode == 201) {
         // 处理统一响应格式
         if (response.data is Map<String, dynamic>) {
@@ -319,7 +319,7 @@ class ApiService {
   }
 
   /// 提交今日身体状态（例如：受伤、疲劳）- 流式对话版
-  Stream<String> chatWithAiStream(int userId, String description) async* {
+  Stream<ChatStreamEvent> chatWithAiStream(int userId, String description) async* {
     try {
       final response = await _dio.post(
         '/message/$userId/chat/stream',
@@ -329,52 +329,74 @@ class ApiService {
 
       final Stream<List<int>> stream = (response.data.stream as Stream).cast<List<int>>();
 
-      // 手动按行解析，避免 LineSplitter 的异常中断
       StringBuffer buffer = StringBuffer();
+      String? currentEvent;
+      final dataLines = <String>[];
+
+      ChatStreamEvent? consumeCurrentEvent() {
+        if (currentEvent == null && dataLines.isEmpty) {
+          return null;
+        }
+
+        final event = (currentEvent ?? 'message').trim();
+        final data = dataLines.join('\n').trim();
+        debugPrint('--- SSE EVENT: $event | DATA: $data');
+
+        currentEvent = null;
+        dataLines.clear();
+
+        if (data.isNotEmpty) {
+          return _parseChatStreamEvent(event: event, data: data);
+        }
+        if (event == 'complete' || event == 'done' || event == 'error') {
+          return ChatStreamLifecycleEvent(type: _mapLifecycleType(event));
+        }
+        return null;
+      }
 
       await for (final chunk in stream) {
-        // 将字节转换为字符串，并追加到缓存
         final String chunkString = utf8.decode(chunk, allowMalformed: true);
         buffer.write(chunkString);
 
-        // 检查是否有换行符，如果有，处理完整行
         String currentContent = buffer.toString();
         while (currentContent.contains('\n')) {
           final int index = currentContent.indexOf('\n');
-          final String line = currentContent.substring(0, index).trim();
+          final String rawLine = currentContent.substring(0, index);
           currentContent = currentContent.substring(index + 1);
           buffer = StringBuffer(currentContent);
 
+          final line = rawLine.replaceAll('\r', '');
           debugPrint('--- SSE RAW LINE: $line');
 
-          if (line.isEmpty) continue;
+          if (line.isEmpty) {
+            final parsed = consumeCurrentEvent();
+            if (parsed != null) {
+              yield parsed;
+            }
+            continue;
+          }
+
+          if (line.startsWith(':')) {
+            continue;
+          }
+
+          if (line.startsWith('event:')) {
+            currentEvent = line.substring(6).trim();
+            continue;
+          }
 
           if (line.startsWith('data:')) {
-            final data = line.substring(5).trim();
-            if (data == '[DONE]') return;
-            // 过滤掉纯 complete 标记，它只通过 event 信号处理，不作为文本展示
-            if (data == 'complete') continue;
-
-            try {
-              if (data.startsWith('{')) {
-                final Map<String, dynamic> jsonData = jsonDecode(data);
-                yield jsonData['content']?.toString() ?? jsonData['data']?.toString() ?? data;
-              } else {
-                yield data;
-              }
-            } catch (e) {
-              yield data;
-            }
-          } else if (line.startsWith('event:')) {
-            final event = line.substring(6).trim();
-            // 兼容 event:done (旧协议) 和 event:complete/error (新协议)
-            if (event == 'complete' || event == 'error' || event == 'done') {
-              yield '[[EVENT:$event]]';
-            }
-          } else if (!line.startsWith(':')) {
-            yield line;
+            dataLines.add(line.substring(5).trim());
+            continue;
           }
+
+          dataLines.add(line.trim());
         }
+      }
+
+      final parsed = consumeCurrentEvent();
+      if (parsed != null) {
+        yield parsed;
       }
     } on DioException catch (e) {
       debugPrint('Chat Dio Error: ${e.type} - ${e.message}');
@@ -383,6 +405,63 @@ class ApiService {
       debugPrint('Chat Stream Error: $e');
       debugPrint('Stack: $stack');
       throw Exception('解析流数据失败: $e');
+    }
+  }
+
+  /// 执行聊天卡片动作（依赖后端返回的真实接口定义）
+  Future<UndoWorkoutResult> executeChatAction(
+    int userId,
+    ChatActionButton action,
+  ) async {
+    final request = action.request;
+    if (request == null || request.path.trim().isEmpty) {
+      throw Exception('后端尚未提供可执行的撤回接口定义');
+    }
+
+    try {
+      final method = request.method.toUpperCase();
+      final mergedQuery = <String, dynamic>{...?request.queryParameters};
+      mergedQuery.putIfAbsent('userId', () => userId);
+      final payload = <String, dynamic>{...?request.body};
+      payload.putIfAbsent('userId', () => userId);
+
+      late final Response response;
+      switch (method) {
+        case 'GET':
+          response = await _dio.get(request.path, queryParameters: mergedQuery);
+          break;
+        case 'PUT':
+          response = await _dio.put(request.path, data: payload, queryParameters: mergedQuery);
+          break;
+        case 'PATCH':
+          response = await _dio.patch(request.path, data: payload, queryParameters: mergedQuery);
+          break;
+        case 'DELETE':
+          response = await _dio.delete(request.path, data: payload, queryParameters: mergedQuery);
+          break;
+        case 'POST':
+        default:
+          response = await _dio.post(request.path, data: payload, queryParameters: mergedQuery);
+          break;
+      }
+
+      if (response.statusCode != 200 && response.statusCode != 201 && response.statusCode != 204) {
+        throw Exception('撤回失败: ${response.statusCode}');
+      }
+
+      final container = _unwrapResponseData(response.data);
+      final latestRecord = _extractWorkoutRecord(container);
+      final latestWorkout = _extractWorkoutRecommendation(container);
+      final message = _extractResponseMessage(response.data) ?? '今日打卡已撤回';
+
+      return UndoWorkoutResult(
+        message: message,
+        latestRecord: latestRecord,
+        latestWorkout: latestWorkout,
+        rawData: response.data,
+      );
+    } on DioException catch (e) {
+      throw Exception('网络请求错误: ${_handleDioError(e)}');
     }
   }
 
@@ -526,7 +605,7 @@ class ApiService {
   dynamic _unwrapResponseData(dynamic rawData) {
     if (rawData is Map<String, dynamic>) {
       if (rawData['success'] == false) {
-        throw Exception(rawData['message']?.toString() ?? '获取聊天记录失败');
+        throw Exception(rawData['message']?.toString() ?? '请求失败');
       }
 
       final data = rawData['data'];
@@ -552,10 +631,181 @@ class ApiService {
     final messages = rawList
         .whereType<Map>()
         .map((item) => ChatMessage.fromJson(Map<String, dynamic>.from(item)))
-        .where((message) => message.content.trim().isNotEmpty)
+        .where((message) => message.hasVisibleContent)
         .toList()
       ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
     return messages;
+  }
+
+  ChatStreamEvent? _parseChatStreamEvent({
+    required String event,
+    required String data,
+  }) {
+    if (data == '[DONE]') {
+      return const ChatStreamLifecycleEvent(type: ChatStreamLifecycleType.complete);
+    }
+
+    if (data == 'complete') {
+      return const ChatStreamLifecycleEvent(type: ChatStreamLifecycleType.complete);
+    }
+
+    if (data == 'error') {
+      return const ChatStreamLifecycleEvent(type: ChatStreamLifecycleType.error);
+    }
+
+    final normalizedEvent = event.toLowerCase();
+
+    try {
+      if (data.startsWith('{') || data.startsWith('[')) {
+        final decoded = jsonDecode(data);
+        if (decoded is Map<String, dynamic>) {
+          final blockEvents = _parseBlockEvents(decoded);
+          if (blockEvents.isNotEmpty) {
+            return ChatStreamBatchEvent(events: blockEvents);
+          }
+
+          final explicitEvent = _readString(decoded, const ['event', 'type', 'messageType'])
+              ?.toLowerCase();
+          final resolvedEvent = explicitEvent ?? normalizedEvent;
+
+          if (_isCardEvent(resolvedEvent, decoded)) {
+            final message = ChatMessage.fromJson({
+              ...decoded,
+              'messageType': 'actionCard',
+              'role': decoded['role'] ?? 'assistant',
+              'timestamp': decoded['timestamp'] ?? DateTime.now().toIso8601String(),
+            });
+            return ChatStreamCardEvent(message: message);
+          }
+
+          if (_isLifecycleEvent(resolvedEvent)) {
+            return ChatStreamLifecycleEvent(type: _mapLifecycleType(resolvedEvent));
+          }
+
+          final text = _readString(
+                decoded,
+                const ['content', 'text', 'message', 'reply', 'delta', 'data', 'assistantMessage'],
+              ) ??
+              '';
+          if (text.isNotEmpty) {
+            return ChatStreamTextEvent(text: text);
+          }
+        }
+      }
+    } catch (_) {
+      // 降级为纯文本处理
+    }
+
+    if (_isLifecycleEvent(normalizedEvent)) {
+      return ChatStreamLifecycleEvent(type: _mapLifecycleType(normalizedEvent));
+    }
+
+    return ChatStreamTextEvent(text: data);
+  }
+
+  bool _isCardEvent(String event, Map<String, dynamic> json) {
+    if (event.contains('card') || event.contains('action')) {
+      return true;
+    }
+    return json['actionCard'] is Map ||
+        json['card'] is Map ||
+        json['structuredContent'] is Map ||
+        json['actions'] is List ||
+        json['buttons'] is List;
+  }
+
+  List<ChatStreamEvent> _parseBlockEvents(Map<String, dynamic> json) {
+    final blocks = json['blocks'];
+    if (blocks is! List) {
+      return const [];
+    }
+
+    final events = <ChatStreamEvent>[];
+    for (final item in blocks.whereType<Map>()) {
+      final block = Map<String, dynamic>.from(item);
+      final blockType = _readString(block, const ['type'])?.toLowerCase() ?? '';
+      final blockData = block['data'];
+      if (blockData is! Map) {
+        continue;
+      }
+      final data = Map<String, dynamic>.from(blockData);
+
+      if (blockType == 'text') {
+        final text = _readString(
+              data,
+              const ['content', 'text', 'message', 'reply'],
+            ) ??
+            '';
+        if (text.isNotEmpty) {
+          events.add(ChatStreamTextEvent(text: text));
+        }
+        continue;
+      }
+
+      if (blockType == 'card') {
+        final message = ChatMessage.fromJson({
+          ...data,
+          'messageType': 'actionCard',
+          'role': json['role'] ?? 'assistant',
+          'timestamp': json['timestamp'] ?? DateTime.now().toIso8601String(),
+        });
+        if (message.hasVisibleContent) {
+          events.add(ChatStreamCardEvent(message: message));
+        }
+      }
+    }
+
+    return events;
+  }
+
+  bool _isLifecycleEvent(String event) {
+    return event == 'complete' || event == 'done' || event == 'error';
+  }
+
+  ChatStreamLifecycleType _mapLifecycleType(String event) {
+    if (event == 'error') {
+      return ChatStreamLifecycleType.error;
+    }
+    return ChatStreamLifecycleType.complete;
+  }
+
+  WorkoutRecord? _extractWorkoutRecord(dynamic container) {
+    if (container is Map<String, dynamic>) {
+      const keys = ['todayRecord', 'record', 'workoutRecord', 'latestRecord'];
+      for (final key in keys) {
+        final value = container[key];
+        if (value is Map<String, dynamic>) {
+          return WorkoutRecord.fromJson(value);
+        }
+        if (value is Map) {
+          return WorkoutRecord.fromJson(Map<String, dynamic>.from(value));
+        }
+      }
+    }
+    return null;
+  }
+
+  WorkoutRecommendation? _extractWorkoutRecommendation(dynamic container) {
+    if (container is Map<String, dynamic>) {
+      const keys = ['todayWorkout', 'workout', 'recommendation', 'latestWorkout'];
+      for (final key in keys) {
+        final value = container[key];
+        if (value is Map<String, dynamic>) {
+          return WorkoutRecommendation.fromJson(value);
+        }
+        if (value is Map) {
+          return WorkoutRecommendation.fromJson(Map<String, dynamic>.from(value));
+        }
+      }
+    }
+    return null;
+  }
+
+  String? _extractResponseMessage(dynamic rawData) {
+    if (rawData is Map<String, dynamic>) {
+      return _readString(rawData, const ['message', 'msg', 'statusText']);
+    }
+    return null;
   }
 
   int? _readInt(Map<String, dynamic> json, List<String> keys) {
@@ -592,6 +842,19 @@ class ApiService {
     return null;
   }
 
+  String? _readString(Map<String, dynamic> json, List<String> keys) {
+    for (final key in keys) {
+      final value = json[key];
+      if (value is String && value.trim().isNotEmpty) {
+        return value;
+      }
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString();
+      }
+    }
+    return null;
+  }
+
   /// 处理 Dio 错误
   String _handleDioError(DioException error) {
     switch (error.type) {
@@ -607,4 +870,48 @@ class ApiService {
         return error.message ?? '未知错误';
     }
   }
+}
+
+sealed class ChatStreamEvent {
+  const ChatStreamEvent();
+}
+
+class ChatStreamBatchEvent extends ChatStreamEvent {
+  final List<ChatStreamEvent> events;
+
+  const ChatStreamBatchEvent({required this.events});
+}
+
+class ChatStreamTextEvent extends ChatStreamEvent {
+  final String text;
+
+  const ChatStreamTextEvent({required this.text});
+}
+
+class ChatStreamCardEvent extends ChatStreamEvent {
+  final ChatMessage message;
+
+  const ChatStreamCardEvent({required this.message});
+}
+
+enum ChatStreamLifecycleType { complete, error }
+
+class ChatStreamLifecycleEvent extends ChatStreamEvent {
+  final ChatStreamLifecycleType type;
+
+  const ChatStreamLifecycleEvent({required this.type});
+}
+
+class UndoWorkoutResult {
+  final String message;
+  final WorkoutRecord? latestRecord;
+  final WorkoutRecommendation? latestWorkout;
+  final dynamic rawData;
+
+  const UndoWorkoutResult({
+    required this.message,
+    this.latestRecord,
+    this.latestWorkout,
+    this.rawData,
+  });
 }

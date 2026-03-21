@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:collection';
-import 'package:characters/characters.dart';
 import 'package:flutter/material.dart';
 import '../models/chat_message.dart';
 import '../services/api_service.dart';
 import '../theme/app_tokens.dart';
+import '../widgets/app_ui.dart';
 
 class ChatPage extends StatefulWidget {
   final int userId;
@@ -38,6 +38,7 @@ class _ChatPageState extends State<ChatPage> {
   int _nextHistoryPage = 1;
   final Queue<String> _streamBuffer = Queue<String>();
   Timer? _typingTimer;
+  int? _streamingAssistantMessageIndex;
 
   @override
   void initState() {
@@ -185,7 +186,7 @@ class _ChatPageState extends State<ChatPage> {
 
     void append(ChatMessage message) {
       final key =
-          '${message.id ?? ''}|${message.role.name}|${message.timestamp.millisecondsSinceEpoch}|${message.content}';
+          '${message.id ?? ''}|${message.role.name}|${message.type.name}|${message.timestamp.millisecondsSinceEpoch}|${message.content}|${message.actionCard?.toJson()}';
       if (seen.add(key)) {
         merged.add(message);
       }
@@ -222,26 +223,36 @@ class _ChatPageState extends State<ChatPage> {
     _controller.clear();
     _scrollToBottom();
 
-    final assistantMessageIndex = _messages.length;
-    setState(() {
+    _streamBuffer.clear();
+    _typingTimer?.cancel();
+    _typingTimer = null;
+    _streamingAssistantMessageIndex = null;
+    String fullContent = '';
+
+    void ensureAssistantTextMessage() {
+      if (_streamingAssistantMessageIndex != null) {
+        return;
+      }
       _messages.add(ChatMessage(
         role: MessageRole.assistant,
         content: '',
         timestamp: DateTime.now(),
       ));
-    });
-
-    String fullContent = '';
-    _streamBuffer.clear();
-    _typingTimer?.cancel();
+      _streamingAssistantMessageIndex = _messages.length - 1;
+    }
 
     void syncAssistantMessage() {
       if (!mounted) return;
+      final assistantIndex = _streamingAssistantMessageIndex;
+      if (assistantIndex == null || assistantIndex >= _messages.length) {
+        return;
+      }
       setState(() {
-        _messages[assistantMessageIndex] = ChatMessage(
-          role: MessageRole.assistant,
+        _messages[assistantIndex] = _messages[assistantIndex].copyWith(
           content: fullContent,
           timestamp: DateTime.now(),
+          type: ChatMessageType.text,
+          clearActionCard: true,
         );
       });
       _scrollToBottom();
@@ -255,6 +266,7 @@ class _ChatPageState extends State<ChatPage> {
           return;
         }
 
+        ensureAssistantTextMessage();
         final chunk = _streamBuffer.removeFirst();
         final chars = chunk.characters.toList();
         final takeCount = chars.length >= 3 ? 2 : 1;
@@ -273,6 +285,7 @@ class _ChatPageState extends State<ChatPage> {
       if (_streamBuffer.isEmpty) {
         return;
       }
+      ensureAssistantTextMessage();
       while (_streamBuffer.isNotEmpty) {
         fullContent += _streamBuffer.removeFirst();
       }
@@ -280,20 +293,58 @@ class _ChatPageState extends State<ChatPage> {
     }
 
     try {
-      await for (final chunk in _apiService.chatWithAiStream(widget.userId, trimmed)) {
-        if (chunk.startsWith('[[EVENT:')) {
-          if (chunk.contains('complete') || chunk.contains('done')) {
-            _planUpdated = true;
-          } else if (chunk.contains('error')) {
-            await flushRemainingBuffer();
-            fullContent = fullContent.isEmpty ? 'AI 服务出现错误，请稍后再试。' : fullContent;
-            syncAssistantMessage();
+      await for (final event in _apiService.chatWithAiStream(widget.userId, trimmed)) {
+        if (event is ChatStreamBatchEvent) {
+          for (final subEvent in event.events) {
+            if (subEvent is ChatStreamTextEvent) {
+              ensureAssistantTextMessage();
+              _streamBuffer.add(subEvent.text);
+              startTypingEffect();
+              continue;
+            }
+
+            if (subEvent is ChatStreamCardEvent) {
+              await flushRemainingBuffer();
+              if (!mounted) return;
+              setState(() {
+                _messages.add(subEvent.message.copyWith(timestamp: DateTime.now()));
+              });
+              _scrollToBottom();
+            }
           }
           continue;
         }
 
-        _streamBuffer.add(chunk);
-        startTypingEffect();
+        if (event is ChatStreamTextEvent) {
+          ensureAssistantTextMessage();
+          _streamBuffer.add(event.text);
+          startTypingEffect();
+          continue;
+        }
+
+        if (event is ChatStreamCardEvent) {
+          await flushRemainingBuffer();
+          if (!mounted) return;
+          setState(() {
+            _messages.add(event.message.copyWith(timestamp: DateTime.now()));
+          });
+          _scrollToBottom();
+          continue;
+        }
+
+        if (event is ChatStreamLifecycleEvent) {
+          if (event.type == ChatStreamLifecycleType.complete) {
+            _planUpdated = true;
+            await flushRemainingBuffer();
+          } else if (event.type == ChatStreamLifecycleType.error) {
+            await flushRemainingBuffer();
+            if (fullContent.isEmpty) {
+              ensureAssistantTextMessage();
+              fullContent = 'AI 服务出现错误，请稍后再试。';
+              syncAssistantMessage();
+            }
+          }
+        }
       }
 
       await flushRemainingBuffer();
@@ -303,16 +354,27 @@ class _ChatPageState extends State<ChatPage> {
 
       var errorMessage = _normalizeError(e);
       if (errorMessage.contains('解析流数据失败')) {
-        errorMessage += '\n\n调试信息：请在 Android Studio Logcat 中过滤 "SSE Line" 或 "Chat Error" 查看原始输出。';
+        errorMessage += '\n\n调试信息：请在 Android Studio Logcat 中过滤 "SSE RAW LINE" 或 "Chat Error" 查看原始输出。';
       }
 
       if (!mounted) return;
       setState(() {
-        _messages[assistantMessageIndex] = ChatMessage(
-          role: MessageRole.assistant,
-          content: '抱歉，出现了错误：$errorMessage',
-          timestamp: DateTime.now(),
-        );
+        if (_streamingAssistantMessageIndex == null) {
+          _messages.add(ChatMessage(
+            role: MessageRole.assistant,
+            content: '抱歉，出现了错误：$errorMessage',
+            timestamp: DateTime.now(),
+          ));
+          _streamingAssistantMessageIndex = _messages.length - 1;
+        } else {
+          final assistantIndex = _streamingAssistantMessageIndex!;
+          _messages[assistantIndex] = _messages[assistantIndex].copyWith(
+            content: '抱歉，出现了错误：$errorMessage',
+            timestamp: DateTime.now(),
+            type: ChatMessageType.text,
+            clearActionCard: true,
+          );
+        }
       });
     } finally {
       _typingTimer?.cancel();
@@ -321,9 +383,75 @@ class _ChatPageState extends State<ChatPage> {
       if (mounted) {
         setState(() {
           _isLoading = false;
+          _streamingAssistantMessageIndex = null;
         });
         _scrollToBottom();
       }
+    }
+  }
+
+  Future<void> _handleActionTap(int index, ChatActionButton action) async {
+    final message = _messages[index];
+    final card = message.actionCard;
+    if (card == null) {
+      return;
+    }
+
+    if (action.isCancelAction) {
+      setState(() {
+        _messages[index] = message.copyWith(
+          actionCard: card.copyWith(
+            status: ChatActionStatus.cancelled,
+            statusText: '已取消撤回，当前打卡保持不变',
+            clearErrorMessage: true,
+          ),
+        );
+      });
+      _scrollToBottom();
+      return;
+    }
+
+    if (!action.isUndoAction) {
+      return;
+    }
+
+    setState(() {
+      _messages[index] = message.copyWith(
+        actionCard: card.copyWith(
+          status: ChatActionStatus.loading,
+          statusText: '正在撤回今日打卡...',
+          clearErrorMessage: true,
+        ),
+      );
+    });
+
+    try {
+      final result = await _apiService.executeChatAction(widget.userId, action);
+      if (!mounted) return;
+      setState(() {
+        _messages[index] = _messages[index].copyWith(
+          actionCard: _messages[index].actionCard?.copyWith(
+            status: ChatActionStatus.success,
+            statusText: result.message,
+            badge: '已撤回',
+            clearErrorMessage: true,
+          ),
+        );
+        _planUpdated = true;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _messages[index] = _messages[index].copyWith(
+          actionCard: _messages[index].actionCard?.copyWith(
+            status: ChatActionStatus.error,
+            statusText: '撤回失败，请重试',
+            errorMessage: _normalizeError(e),
+          ),
+        );
+      });
+    } finally {
+      _scrollToBottom();
     }
   }
 
@@ -402,7 +530,7 @@ class _ChatPageState extends State<ChatPage> {
           return _buildHistoryHeader();
         }
         final message = _messages[index - 1];
-        return _buildMessageBubble(message);
+        return _buildMessageBubble(message, index - 1);
       },
     );
   }
@@ -468,7 +596,7 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  Widget _buildMessageBubble(ChatMessage message) {
+  Widget _buildMessageBubble(ChatMessage message, int index) {
     final isUser = message.isUser;
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
@@ -485,30 +613,9 @@ class _ChatPageState extends State<ChatPage> {
             const SizedBox(width: AppSpacing.xs),
           ],
           Flexible(
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.md,
-                vertical: AppSpacing.sm,
-              ),
-              decoration: BoxDecoration(
-                color: isUser ? AppColors.primary : AppColors.surface,
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(AppRadius.md),
-                  topRight: const Radius.circular(AppRadius.md),
-                  bottomLeft: Radius.circular(isUser ? AppRadius.md : 4),
-                  bottomRight: Radius.circular(isUser ? 4 : AppRadius.md),
-                ),
-                boxShadow: isUser ? null : AppShadows.card.sublist(1),
-              ),
-              child: Text(
-                message.content,
-                style: TextStyle(
-                  color: isUser ? Colors.white : AppColors.textPrimary,
-                  fontSize: 15,
-                  height: 1.4,
-                ),
-              ),
-            ),
+            child: message.type == ChatMessageType.actionCard && message.actionCard != null
+                ? _buildActionCardMessage(message, index)
+                : _buildTextMessageBubble(message),
           ),
           if (isUser) ...[
             const SizedBox(width: AppSpacing.xs),
@@ -521,6 +628,273 @@ class _ChatPageState extends State<ChatPage> {
         ],
       ),
     );
+  }
+
+  Widget _buildTextMessageBubble(ChatMessage message) {
+    final isUser = message.isUser;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: isUser ? AppColors.primary : AppColors.surface,
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(AppRadius.md),
+          topRight: const Radius.circular(AppRadius.md),
+          bottomLeft: Radius.circular(isUser ? AppRadius.md : 4),
+          bottomRight: Radius.circular(isUser ? 4 : AppRadius.md),
+        ),
+        boxShadow: isUser ? null : AppShadows.card.sublist(1),
+      ),
+      child: Text(
+        message.content,
+        style: TextStyle(
+          color: isUser ? Colors.white : AppColors.textPrimary,
+          fontSize: 15,
+          height: 1.4,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionCardMessage(ChatMessage message, int index) {
+    final card = message.actionCard!;
+    final statusColor = _statusColor(card.status);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (message.content.trim().isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.sm,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              boxShadow: AppShadows.card.sublist(1),
+            ),
+            child: Text(
+              message.content,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 15,
+                height: 1.5,
+              ),
+            ),
+          ),
+        AppSurfaceCard(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          borderRadius: AppRadius.lg,
+          border: Border.all(color: statusColor.withValues(alpha: 0.18)),
+          boxShadow: AppShadows.card.sublist(1),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          card.title,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        if (card.subtitle != null && card.subtitle!.trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            card.subtitle!,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppColors.textSecondary,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if ((card.badge ?? '').trim().isNotEmpty)
+                    AppBadge(
+                      label: card.badge!,
+                      color: statusColor,
+                      icon: _statusIcon(card.status),
+                    ),
+                ],
+              ),
+              if (card.fields.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.md),
+                ...card.fields.map(
+                  (field) => Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(AppSpacing.sm),
+                      decoration: BoxDecoration(
+                        color: AppColors.background,
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            field.label,
+                            style: const TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            field.value,
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+              if (card.statusText != null && card.statusText!.trim().isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (card.isLoading)
+                        const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      else
+                        Icon(_statusIcon(card.status), size: 16, color: statusColor),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          card.statusText!,
+                          style: TextStyle(
+                            color: statusColor,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              if (card.errorMessage != null && card.errorMessage!.trim().isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  card.errorMessage!,
+                  style: const TextStyle(
+                    color: AppColors.error,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+              if (card.actions.isNotEmpty && !card.isFinished) ...[
+                const SizedBox(height: AppSpacing.md),
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.sm,
+                  children: card.actions
+                      .map((action) => _buildActionButton(action, card, index))
+                      .toList(),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionButton(ChatActionButton action, ChatActionCard card, int index) {
+    final isLoading = card.isLoading && action.isUndoAction;
+
+    if (action.style == ChatActionButtonStyle.secondary) {
+      return OutlinedButton(
+        onPressed: card.isLoading ? null : () => _handleActionTap(index, action),
+        child: Text(action.label),
+      );
+    }
+
+    final backgroundColor = action.style == ChatActionButtonStyle.danger
+        ? AppColors.error
+        : AppColors.primary;
+
+    return ElevatedButton(
+      onPressed: card.isLoading ? null : () => _handleActionTap(index, action),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: backgroundColor,
+        foregroundColor: Colors.white,
+      ),
+      child: isLoading
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
+          : Text(action.label),
+    );
+  }
+
+  Color _statusColor(ChatActionStatus status) {
+    switch (status) {
+      case ChatActionStatus.loading:
+        return AppColors.warning;
+      case ChatActionStatus.success:
+        return AppColors.success;
+      case ChatActionStatus.error:
+        return AppColors.error;
+      case ChatActionStatus.cancelled:
+        return AppColors.textSecondary;
+      case ChatActionStatus.idle:
+        return AppColors.primary;
+    }
+  }
+
+  IconData _statusIcon(ChatActionStatus status) {
+    switch (status) {
+      case ChatActionStatus.loading:
+        return Icons.hourglass_top_rounded;
+      case ChatActionStatus.success:
+        return Icons.check_circle_rounded;
+      case ChatActionStatus.error:
+        return Icons.error_rounded;
+      case ChatActionStatus.cancelled:
+        return Icons.remove_circle_outline_rounded;
+      case ChatActionStatus.idle:
+        return Icons.undo_rounded;
+    }
   }
 
   Widget _buildInputArea() {
