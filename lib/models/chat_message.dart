@@ -342,6 +342,7 @@ class ChatMessage {
   final String content;
   final DateTime timestamp;
   final ChatActionCard? actionCard;
+  final List<dynamic>? renderBlocks;
 
   ChatMessage({
     this.id,
@@ -350,12 +351,14 @@ class ChatMessage {
     required this.content,
     required this.timestamp,
     this.actionCard,
+    this.renderBlocks,
   });
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) {
     final messageType = _parseMessageType(json);
     final cardJson = _extractActionCardJson(json);
     final card = cardJson == null ? null : ChatActionCard.fromJson(cardJson);
+    final blocks = json['renderBlocks'] as List<dynamic>?;
 
     return ChatMessage(
       id: _readString(json, const ['id', 'messageId', 'chatId']),
@@ -375,12 +378,14 @@ class ChatMessage {
           ) ??
           DateTime.now(),
       actionCard: messageType == ChatMessageType.actionCard ? card : null,
+      renderBlocks: blocks,
     );
   }
 
   bool get isUser => role == MessageRole.user;
   bool get isAssistant => role == MessageRole.assistant;
-  bool get hasVisibleContent => content.trim().isNotEmpty || actionCard != null;
+  bool get hasVisibleContent =>
+      content.trim().isNotEmpty || actionCard != null || (renderBlocks?.isNotEmpty ?? false);
 
   ChatMessage copyWith({
     String? id,
@@ -389,6 +394,7 @@ class ChatMessage {
     String? content,
     DateTime? timestamp,
     ChatActionCard? actionCard,
+    List<dynamic>? renderBlocks,
     bool clearActionCard = false,
   }) {
     return ChatMessage(
@@ -398,6 +404,7 @@ class ChatMessage {
       content: content ?? this.content,
       timestamp: timestamp ?? this.timestamp,
       actionCard: clearActionCard ? null : (actionCard ?? this.actionCard),
+      renderBlocks: renderBlocks ?? this.renderBlocks,
     );
   }
 

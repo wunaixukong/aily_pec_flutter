@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'custom_log_interceptor.dart';
 import '../models/chat_message.dart';
 import '../models/user.dart';
 import '../models/workout_plan.dart';
 import '../models/api_response.dart';
 import '../models/workout_record.dart';
 import '../models/workout_recommendation.dart';
+import '../models/today_workout_next.dart';
 
 /// API 服务类 - 处理与后端的通信
 class ApiService {
@@ -29,16 +31,7 @@ class ApiService {
     );
 
     // 添加日志拦截器（调试用）
-    _dio.interceptors.add(
-      LogInterceptor(
-        request: true,
-        requestHeader: true,
-        requestBody: true,
-        responseHeader: true,
-        responseBody: true,
-        error: true,
-      ),
-    );
+    _dio.interceptors.add(CustomLogInterceptor());
   }
 
   /// 获取所有用户
@@ -283,6 +276,28 @@ class ApiService {
         throw Exception('完成训练失败: ${response.statusCode}');
       }
     } on DioException catch (e) {
+      throw Exception('网络请求错误: ${_handleDioError(e)}');
+    }
+  }
+
+  /// 获取下一次训练内容
+  Future<TodayWorkoutNext?> getNextWorkout(int userId) async {
+    try {
+      final response = await _dio.get('/today/$userId/next');
+
+      if (response.statusCode == 200) {
+        if (response.data == null) return null;
+        // 如果是统一响应格式，解包 data 字段
+        if (response.data is Map<String, dynamic> && response.data.containsKey('data')) {
+          final data = response.data['data'];
+          if (data == null) return null;
+          return TodayWorkoutNext.fromJson(data as Map<String, dynamic>);
+        }
+        return TodayWorkoutNext.fromJson(response.data as Map<String, dynamic>);
+      }
+      return null;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
       throw Exception('网络请求错误: ${_handleDioError(e)}');
     }
   }

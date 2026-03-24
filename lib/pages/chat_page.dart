@@ -635,6 +635,8 @@ class _ChatPageState extends State<ChatPage> {
 
   Widget _buildMessageBubble(ChatMessage message, int index) {
     final isUser = message.isUser;
+    final hasBlocks = message.renderBlocks != null && message.renderBlocks!.isNotEmpty;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
       child: Row(
@@ -650,9 +652,11 @@ class _ChatPageState extends State<ChatPage> {
             const SizedBox(width: AppSpacing.xs),
           ],
           Flexible(
-            child: message.type == ChatMessageType.actionCard && message.actionCard != null
-                ? _buildActionCardMessage(message, index)
-                : _buildTextMessageBubble(message),
+            child: hasBlocks
+                ? _buildBlocksMessage(message, index)
+                : (message.type == ChatMessageType.actionCard && message.actionCard != null
+                    ? _buildActionCardMessage(message, index)
+                    : _buildTextMessageBubble(message)),
           ),
           if (isUser) ...[
             const SizedBox(width: AppSpacing.xs),
@@ -664,6 +668,38 @@ class _ChatPageState extends State<ChatPage> {
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildBlocksMessage(ChatMessage message, int index) {
+    final blocks = message.renderBlocks!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: blocks.map((blockData) {
+        if (blockData is! Map) return const SizedBox.shrink();
+        final map = Map<String, dynamic>.from(blockData);
+        final type = map['type']?.toString().toLowerCase() ?? '';
+        final data = map['data'];
+
+        if (type == 'text' && data is Map) {
+          final content = data['content']?.toString() ?? '';
+          if (content.isEmpty) return const SizedBox.shrink();
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _buildTextMessageBubble(message.copyWith(content: content)),
+          );
+        }
+
+        if (type == 'card' && data is Map) {
+          final card = ChatActionCard.fromJson(Map<String, dynamic>.from(data));
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _buildActionCardMessage(message.copyWith(actionCard: card), index),
+          );
+        }
+
+        return const SizedBox.shrink();
+      }).toList(),
     );
   }
 

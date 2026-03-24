@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'chat_page.dart';
 import '../models/workout_recommendation.dart';
 import '../models/workout_record.dart';
+import '../models/today_workout_next.dart';
 import '../services/api_service.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/app_ui.dart';
@@ -63,21 +64,20 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
     try {
       final record = await _apiService.getTodayRecord(widget.userId);
       final recommendation = await _apiService.getTodayWorkout(widget.userId);
+      final nextWorkout = await _apiService.getNextWorkout(widget.userId);
 
       if (!mounted) return;
       setState(() {
         _todayRecord = record;
         _recommendation = recommendation;
-        _isCompleted = (record != null && record.revoked != 1) || recommendation.completed;
+        _isCompleted = (record != null && !record.revoked) || recommendation.completed;
 
-        if (_isCompleted) {
-          // 如果已完成，且推荐内容和已练内容不一样，说明是“真正的下一项”
-          final recordContent = record?.content ?? '';
-          if (recommendation.recommendedContent != recordContent && recommendation.recommendedContent.isNotEmpty) {
-            _nextWorkout = recommendation.recommendedContent;
-          } else {
-            _nextWorkout = '明天将继续下一阶段';
-          }
+        if (nextWorkout != null && nextWorkout.content.isNotEmpty) {
+          _nextWorkout = nextWorkout.content;
+        } else if (_isCompleted) {
+          _nextWorkout = '待明天系统更新';
+        } else {
+          _nextWorkout = '待今日训练完成后解锁';
         }
         _isLoading = false;
       });
@@ -107,13 +107,16 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
     try {
       final recommendation = await _apiService.completeTodayWorkout(widget.userId);
       final record = await _apiService.getTodayRecord(widget.userId);
+      final nextWorkout = await _apiService.getNextWorkout(widget.userId);
 
       if (!mounted) return;
       setState(() {
         _todayRecord = record;
         _recommendation = recommendation;
-        _isCompleted = (record != null && record.revoked != 1) || recommendation.completed;
-        if (_isCompleted) {
+        _isCompleted = (record != null && !record.revoked) || recommendation.completed;
+        if (nextWorkout != null && nextWorkout.content.isNotEmpty) {
+          _nextWorkout = nextWorkout.content;
+        } else if (_isCompleted) {
           _nextWorkout = recommendation.recommendedContent;
         }
         _isLoading = false;

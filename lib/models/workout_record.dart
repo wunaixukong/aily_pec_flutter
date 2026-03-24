@@ -1,13 +1,13 @@
-/// 训练记录模型类 - 对齐接口文档
+/// Workout record model aligned with current API fields.
 class WorkoutRecord {
   final int? id;
   final int userId;
-  final int? planId; // 对齐接口 plan_id
+  final int? planId;
   final int? workoutDayId;
   final String content;
   final String? workoutDate;
   final DateTime? createTime;
-  final int? revoked; // 1 表示已撤回
+  final bool revoked;
 
   WorkoutRecord({
     this.id,
@@ -17,21 +17,19 @@ class WorkoutRecord {
     required this.content,
     this.workoutDate,
     this.createTime,
-    this.revoked,
+    this.revoked = false,
   });
 
   factory WorkoutRecord.fromJson(Map<String, dynamic> json) {
     return WorkoutRecord(
-      id: json['id'] as int?,
-      userId: json['userId'] as int,
-      planId: json['plan_id'] as int?, // 处理下划线
-      workoutDayId: json['workoutDayId'] as int?,
-      content: json['content'] as String,
+      id: _readInt(json['id']),
+      userId: _readInt(json['userId']) ?? 0,
+      planId: _readInt(json['planId'] ?? json['plan_id']),
+      workoutDayId: _readInt(json['workoutDayId']),
+      content: (json['content'] as String?) ?? '',
       workoutDate: json['workoutDate'] as String?,
-      createTime: json['createTime'] != null
-          ? DateTime.parse(json['createTime'] as String)
-          : null,
-      revoked: json['revoked'] as int?,
+      createTime: _readDateTime(json['createTime']),
+      revoked: _readBool(json['revoked']),
     );
   }
 
@@ -39,12 +37,34 @@ class WorkoutRecord {
     return {
       'id': id,
       'userId': userId,
-      'plan_id': planId, // 处理下划线
+      'plan_id': planId,
       'workoutDayId': workoutDayId,
       'content': content,
       'workoutDate': workoutDate,
-      if (createTime != null) 'createTime': createTime?.toIso8601String(),
+      if (createTime != null) 'createTime': createTime!.toIso8601String(),
       'revoked': revoked,
     };
+  }
+
+  static int? _readInt(dynamic value) {
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value);
+    return null;
+  }
+
+  static DateTime? _readDateTime(dynamic value) {
+    if (value is! String || value.isEmpty) return null;
+    return DateTime.tryParse(value);
+  }
+
+  static bool _readBool(dynamic value) {
+    if (value is bool) return value;
+    if (value is int) return value != 0;
+    if (value is String) {
+      final normalized = value.trim().toLowerCase();
+      if (normalized == 'true' || normalized == '1') return true;
+      if (normalized == 'false' || normalized == '0') return false;
+    }
+    return false;
   }
 }
