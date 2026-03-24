@@ -30,7 +30,10 @@ class _PomodoroPageState extends State<PomodoroPage> {
   }
 
   void _onPomodoroStateChanged() {
-    setState(() {});
+    // 只有在状态或阶段改变时才刷新整个页面，倒计时由子组件处理
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   @override
@@ -72,68 +75,11 @@ class _PomodoroPageState extends State<PomodoroPage> {
             padding: const EdgeInsets.all(AppSpacing.lg),
             child: Column(
               children: [
-                SizedBox(
-                  width: 292,
-                  height: 292,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      SizedBox(
-                        width: 292,
-                        height: 292,
-                        child: CircularProgressIndicator(
-                          value: 1,
-                          strokeWidth: 14,
-                          backgroundColor: AppColors.border,
-                          valueColor: const AlwaysStoppedAnimation<Color>(
-                            AppColors.border,
-                          ),
-                        ),
-                      ),
-                      SizedBox(
-                        width: 292,
-                        height: 292,
-                        child: CircularProgressIndicator(
-                          value: _pomodoroService.progress,
-                          strokeWidth: 14,
-                          backgroundColor: Colors.transparent,
-                          strokeCap: StrokeCap.round,
-                          valueColor: AlwaysStoppedAnimation<Color>(phaseColor),
-                        ),
-                      ),
-                      Container(
-                        width: 224,
-                        height: 224,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: phaseColor.withValues(alpha: 0.08),
-                          border: Border.all(
-                            color: phaseColor.withValues(alpha: 0.14),
-                          ),
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              _pomodoroService.formattedTime,
-                              style: Theme.of(context).textTheme.headlineMedium
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                    fontFeatures: const [
-                                      FontFeature.tabularFigures(),
-                                    ],
-                                  ),
-                            ),
-                            const SizedBox(height: AppSpacing.xs),
-                            Text(
-                              _getStateText(),
-                              style: Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(color: AppColors.textSecondary),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                RepaintBoundary(
+                  child: _TimerDisplay(
+                    service: _pomodoroService,
+                    phaseColor: phaseColor,
+                    stateText: _getStateText(),
                   ),
                 ),
                 const SizedBox(height: AppSpacing.lg),
@@ -307,6 +253,107 @@ class _PomodoroPageState extends State<PomodoroPage> {
         onSettingsChanged: (newSettings) {
           _pomodoroService.updateSettings(newSettings);
         },
+      ),
+    );
+  }
+}
+
+/// 独立的计时器展示组件，用于局部刷新和重绘隔离
+class _TimerDisplay extends StatefulWidget {
+  final PomodoroService service;
+  final Color phaseColor;
+  final String stateText;
+
+  const _TimerDisplay({
+    required this.service,
+    required this.phaseColor,
+    required this.stateText,
+  });
+
+  @override
+  State<_TimerDisplay> createState() => _TimerDisplayState();
+}
+
+class _TimerDisplayState extends State<_TimerDisplay> {
+  @override
+  void initState() {
+    super.initState();
+    widget.service.addListener(_update);
+  }
+
+  @override
+  void dispose() {
+    widget.service.removeListener(_update);
+    super.dispose();
+  }
+
+  void _update() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 292,
+      height: 292,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // 背景圆环
+          const SizedBox(
+            width: 292,
+            height: 292,
+            child: CircularProgressIndicator(
+              value: 1,
+              strokeWidth: 14,
+              backgroundColor: AppColors.border,
+              valueColor: AlwaysStoppedAnimation<Color>(AppColors.border),
+            ),
+          ),
+          // 进度圆环
+          SizedBox(
+            width: 292,
+            height: 292,
+            child: CircularProgressIndicator(
+              value: widget.service.progress,
+              strokeWidth: 14,
+              backgroundColor: Colors.transparent,
+              strokeCap: StrokeCap.round,
+              valueColor: AlwaysStoppedAnimation<Color>(widget.phaseColor),
+            ),
+          ),
+          // 中心内容
+          Container(
+            width: 224,
+            height: 224,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: widget.phaseColor.withValues(alpha: 0.08),
+              border: Border.all(
+                color: widget.phaseColor.withValues(alpha: 0.14),
+              ),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  widget.service.formattedTime,
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  widget.stateText,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

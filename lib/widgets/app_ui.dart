@@ -189,6 +189,19 @@ class _PremiumIconPainter extends CustomPainter {
         paint,
       );
     } else if (index == 2) {
+      // 导航：助手图标 (Sparkles/Chat)
+      final path = Path()
+        ..moveTo(w * 0.2, h * 0.5)
+        ..quadraticBezierTo(w * 0.2, h * 0.2, w * 0.5, h * 0.2)
+        ..quadraticBezierTo(w * 0.8, h * 0.2, w * 0.8, h * 0.5)
+        ..quadraticBezierTo(w * 0.8, h * 0.8, w * 0.5, h * 0.8)
+        ..lineTo(w * 0.3, h * 0.9)
+        ..lineTo(w * 0.35, h * 0.75)
+        ..quadraticBezierTo(w * 0.2, h * 0.7, w * 0.2, h * 0.5);
+      canvas.drawPath(path, paint);
+      // 绘制一个小星星装饰
+      canvas.drawCircle(Offset(w * 0.65, h * 0.4), 1.5, paint..style = PaintingStyle.fill);
+    } else if (index == 3) {
       // 导航：我的图标 (User)
       canvas.drawCircle(Offset(w * 0.5, h * 0.35), w * 0.22, paint);
       final path = Path()

@@ -641,20 +641,9 @@ class ApiService {
     required String event,
     required String data,
   }) {
-    if (data == '[DONE]') {
-      return const ChatStreamLifecycleEvent(type: ChatStreamLifecycleType.complete);
-    }
-
-    if (data == 'complete') {
-      return const ChatStreamLifecycleEvent(type: ChatStreamLifecycleType.complete);
-    }
-
-    if (data == 'error') {
-      return const ChatStreamLifecycleEvent(type: ChatStreamLifecycleType.error);
-    }
-
     final normalizedEvent = event.toLowerCase();
 
+    // 优先尝试解析 JSON 数据 (因为 done 事件也可能携带卡片)
     try {
       if (data.startsWith('{') || data.startsWith('[')) {
         final decoded = jsonDecode(data);
@@ -678,6 +667,7 @@ class ApiService {
             return ChatStreamCardEvent(message: message);
           }
 
+          // 如果是生命周期事件相关的 JSON，我们在这里处理掉，不走 TextEvent
           if (_isLifecycleEvent(resolvedEvent)) {
             return ChatStreamLifecycleEvent(type: _mapLifecycleType(resolvedEvent));
           }
@@ -696,8 +686,13 @@ class ApiService {
       // 降级为纯文本处理
     }
 
-    if (_isLifecycleEvent(normalizedEvent)) {
-      return ChatStreamLifecycleEvent(type: _mapLifecycleType(normalizedEvent));
+    // 处理非 JSON 的生命周期信号
+    if (data == '[DONE]' || data == 'complete' || _isLifecycleEvent(normalizedEvent)) {
+      return ChatStreamLifecycleEvent(type: _mapLifecycleType(normalizedEvent.isEmpty ? 'complete' : normalizedEvent));
+    }
+
+    if (data == 'error') {
+      return const ChatStreamLifecycleEvent(type: ChatStreamLifecycleType.error);
     }
 
     return ChatStreamTextEvent(text: data);

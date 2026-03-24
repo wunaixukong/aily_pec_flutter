@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'pages/today_workout_page.dart';
 import 'pages/plan_management_page.dart';
 import 'pages/profile_page.dart';
+import 'pages/chat_page.dart';
 import 'theme/app_tokens.dart';
 import 'theme/app_theme.dart';
 import 'widgets/app_ui.dart';
@@ -55,7 +56,10 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
     ];
 
     return Scaffold(
-      body: pages[_currentIndex],
+      body: IndexedStack(
+        index: _currentIndex,
+        children: pages,
+      ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: Colors.white,

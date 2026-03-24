@@ -7,6 +7,7 @@ class WorkoutRecord {
   final String content;
   final String? workoutDate;
   final DateTime? createTime;
+  final int? revoked; // 1 表示已撤回
 
   WorkoutRecord({
     this.id,
@@ -16,6 +17,7 @@ class WorkoutRecord {
     required this.content,
     this.workoutDate,
     this.createTime,
+    this.revoked,
   });
 
   factory WorkoutRecord.fromJson(Map<String, dynamic> json) {
@@ -29,6 +31,7 @@ class WorkoutRecord {
       createTime: json['createTime'] != null
           ? DateTime.parse(json['createTime'] as String)
           : null,
+      revoked: json['revoked'] as int?,
     );
   }
 
@@ -41,6 +44,7 @@ class WorkoutRecord {
       'content': content,
       'workoutDate': workoutDate,
       if (createTime != null) 'createTime': createTime?.toIso8601String(),
+      'revoked': revoked,
     };
   }
 }

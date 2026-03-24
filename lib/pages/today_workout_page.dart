@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'chat_page.dart';
@@ -67,7 +68,7 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
       setState(() {
         _todayRecord = record;
         _recommendation = recommendation;
-        _isCompleted = record != null || recommendation.completed;
+        _isCompleted = (record != null && record.revoked != 1) || recommendation.completed;
 
         if (_isCompleted) {
           // 如果已完成，且推荐内容和已练内容不一样，说明是“真正的下一项”
@@ -111,7 +112,7 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
       setState(() {
         _todayRecord = record;
         _recommendation = recommendation;
-        _isCompleted = record != null || recommendation.completed;
+        _isCompleted = (record != null && record.revoked != 1) || recommendation.completed;
         if (_isCompleted) {
           _nextWorkout = recommendation.recommendedContent;
         }
@@ -131,7 +132,7 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
   void _showStatusDialog() async {
     final result = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(
+      CupertinoPageRoute(
         builder: (context) => ChatPage(userId: widget.userId),
       ),
     );
@@ -158,7 +159,12 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh, color: AppColors.textPrimary),
+            icon: const AppDuotoneIcon(index: 2, color: AppColors.primary, size: 22, isSelected: true),
+            onPressed: _showStatusDialog,
+            tooltip: '智能助手',
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh, color: AppColors.textSecondary, size: 20),
             onPressed: _loadTodayWorkout,
             tooltip: '刷新',
           ),
@@ -166,6 +172,13 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
         ],
       ),
       body: SafeArea(top: false, child: _buildBody(context)),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showStatusDialog,
+        backgroundColor: AppColors.primary,
+        elevation: 8,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
+        child: const AppDuotoneIcon(index: 2, color: Colors.white, size: 28, isSelected: true),
+      ),
     );
   }
 
@@ -556,22 +569,33 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
     return GestureDetector(
       onTap: _showStatusDialog,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 14),
         decoration: BoxDecoration(
-          color: AppColors.surfaceAlt,
+          color: AppColors.primary.withValues(alpha: 0.04),
           borderRadius: BorderRadius.circular(AppRadius.lg),
-          border: Border.all(color: AppColors.border.withValues(alpha: 0.5)),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.1)),
         ),
         child: Row(
           children: [
             Container(
-              width: 36,
-              height: 36,
+              width: 40,
+              height: 40,
               decoration: BoxDecoration(
-                color: AppColors.accent.withValues(alpha: 0.1),
+                gradient: const LinearGradient(
+                  colors: [AppColors.primary, AppColors.accent],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
                 shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.2),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
-              child: const Icon(Icons.health_and_safety_rounded, color: AppColors.accent, size: 20),
+              child: const AppDuotoneIcon(index: 2, color: Colors.white, size: 20, isSelected: true),
             ),
             const SizedBox(width: AppSpacing.md),
             const Expanded(
@@ -579,15 +603,15 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '身体感觉怎么样？',
+                    'AI 智能助手',
                     style: TextStyle(
                       fontWeight: FontWeight.w900,
-                      fontSize: 14,
+                      fontSize: 15,
                       color: AppColors.textPrimary,
                     ),
                   ),
                   Text(
-                    '告知 AI 你的伤痛或疲劳，动态调整计划',
+                    '身体感觉疲劳？让 AI 帮你实时调整计划',
                     style: TextStyle(
                       fontSize: 12,
                       color: AppColors.textSecondary,
@@ -596,7 +620,21 @@ class _TodayWorkoutPageState extends State<TodayWorkoutPage> {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right_rounded, color: AppColors.border, size: 20),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+              child: const Text(
+                '去对话',
+                style: TextStyle(
+                  color: AppColors.primary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
           ],
         ),
       ),

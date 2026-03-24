@@ -307,7 +307,21 @@ class _ChatPageState extends State<ChatPage> {
               await flushRemainingBuffer();
               if (!mounted) return;
               setState(() {
-                _messages.add(subEvent.message.copyWith(timestamp: DateTime.now()));
+                final assistantIndex = _streamingAssistantMessageIndex;
+                if (assistantIndex != null && assistantIndex < _messages.length) {
+                  // 同步 ChatStreamCardEvent 的修复逻辑
+                  final newMessage = subEvent.message;
+                  _messages[assistantIndex] = newMessage.copyWith(
+                    content: fullContent.isNotEmpty ? fullContent : newMessage.content,
+                    timestamp: DateTime.now(),
+                  );
+                } else {
+                  _messages.add(subEvent.message.copyWith(timestamp: DateTime.now()));
+                  _streamingAssistantMessageIndex = _messages.length - 1;
+                  if (subEvent.message.content.isNotEmpty) {
+                    fullContent = subEvent.message.content;
+                  }
+                }
               });
               _scrollToBottom();
             }
@@ -326,7 +340,23 @@ class _ChatPageState extends State<ChatPage> {
           await flushRemainingBuffer();
           if (!mounted) return;
           setState(() {
-            _messages.add(event.message.copyWith(timestamp: DateTime.now()));
+            final assistantIndex = _streamingAssistantMessageIndex;
+            if (assistantIndex != null && assistantIndex < _messages.length) {
+              // 关键修复：保留当前的 fullContent，除非 event.message.content 确实提供了新的、不同的信息
+              // 如果 fullContent 已经有内容了，我们通常认为它是最新的（通过流式累积的）
+              // 而 event.message.content 通常是后端在 done 事件中返回的完整副本
+              final newMessage = event.message;
+              _messages[assistantIndex] = newMessage.copyWith(
+                content: fullContent.isNotEmpty ? fullContent : newMessage.content,
+                timestamp: DateTime.now(),
+              );
+            } else {
+              _messages.add(event.message.copyWith(timestamp: DateTime.now()));
+              _streamingAssistantMessageIndex = _messages.length - 1;
+              if (event.message.content.isNotEmpty) {
+                fullContent = event.message.content;
+              }
+            }
           });
           _scrollToBottom();
           continue;
@@ -457,30 +487,37 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.surface,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary, size: 20),
-          onPressed: () => Navigator.pop(context, _planUpdated),
-        ),
-        title: const Text(
-          '智能助手',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop && result == null && _planUpdated) {
+        }
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          backgroundColor: AppColors.surface,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary, size: 20),
+            onPressed: () => Navigator.pop(context, _planUpdated),
           ),
+          title: const Text(
+            '智能助手',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          centerTitle: true,
         ),
-        centerTitle: true,
-      ),
-      body: Column(
-        children: [
-          Expanded(child: _buildMessageList()),
-          _buildInputArea(),
-        ],
+        body: Column(
+          children: [
+            Expanded(child: _buildMessageList()),
+            _buildInputArea(),
+          ],
+        ),
       ),
     );
   }
